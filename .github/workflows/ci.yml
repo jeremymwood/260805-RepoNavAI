@@ -1,0 +1,25 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 9.0.x }
+      - run: dotnet restore RepoNavAI.sln
+      - run: dotnet build RepoNavAI.sln --configuration Release --no-restore
+      - run: dotnet test RepoNavAI.sln --configuration Release --no-build
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: src/RepoNavAI.Web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: src/RepoNavAI.Web/package-lock.json }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

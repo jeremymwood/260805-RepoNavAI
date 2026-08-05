@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.user
+*.suo
+.idea/
+.vscode/
+coverage/
+.dotnet9/
+.tools/
