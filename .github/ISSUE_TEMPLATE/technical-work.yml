@@ -1,0 +1,34 @@
+name: Technical work
+description: Propose infrastructure, security, testing, or maintainability work.
+title: "[Engineering]: "
+labels: ["type:infrastructure"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What risk, constraint, or architectural need drives this work?
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Proposed outcome
+      description: State the desired outcome and important tradeoffs.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Rollout and rollback
+      description: Explain validation, observability, migration, and recovery needs.
+    validations:
+      required: true
