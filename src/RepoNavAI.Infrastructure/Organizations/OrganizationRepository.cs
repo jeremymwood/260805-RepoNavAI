@@ -20,6 +20,9 @@ public sealed class OrganizationRepository(AppDbContext dbContext) : IOrganizati
     public Task<OrganizationInvitation?> GetInvitationByTokenHashAsync(string tokenHash, CancellationToken cancellationToken) =>
         dbContext.OrganizationInvitations.SingleOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
 
+    public Task<OrganizationInvitation?> GetInvitationByIdAsync(Guid invitationId, CancellationToken cancellationToken) =>
+        dbContext.OrganizationInvitations.SingleOrDefaultAsync(x => x.Id == invitationId, cancellationToken);
+
     public Task<bool> HasPendingInvitationAsync(Guid organizationId, string email, CancellationToken cancellationToken) =>
         dbContext.OrganizationInvitations.AnyAsync(x => x.OrganizationId == organizationId && x.Email == email && x.AcceptedAtUtc == null && x.RevokedAtUtc == null && x.ExpiresAtUtc > DateTimeOffset.UtcNow, cancellationToken);
 
@@ -56,4 +59,15 @@ public sealed class OrganizationQueries(AppDbContext dbContext) : IOrganizationQ
                              select new OrganizationMemberDto(user.Id, user.Email!, user.DisplayName, member.Role)).ToArrayAsync(cancellationToken);
         return new OrganizationDetails(organization.Id, organization.Name, organization.Slug, organization.Role, members);
     }
+
+    public async Task<IReadOnlyCollection<PendingInvitationDto>> ListPendingInvitationsAsync(Guid organizationId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await (from invitation in dbContext.OrganizationInvitations.AsNoTracking()
+               join inviter in dbContext.Set<ApplicationUser>().AsNoTracking() on invitation.InvitedByUserId equals inviter.Id
+               where invitation.OrganizationId == organizationId
+                     && invitation.AcceptedAtUtc == null
+                     && invitation.RevokedAtUtc == null
+                     && invitation.ExpiresAtUtc > now
+               orderby invitation.CreatedAtUtc descending
+               select new PendingInvitationDto(invitation.Id, invitation.Email, invitation.Role, inviter.DisplayName, invitation.CreatedAtUtc, invitation.ExpiresAtUtc))
+            .ToArrayAsync(cancellationToken);
 }

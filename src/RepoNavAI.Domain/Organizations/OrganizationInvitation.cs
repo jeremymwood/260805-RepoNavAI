@@ -36,10 +36,11 @@ public sealed class OrganizationInvitation : Entity
         MarkUpdated();
     }
 
-    public void Revoke()
+    public void Revoke(DateTimeOffset now)
     {
         if (AcceptedAtUtc is not null) throw new InvalidOperationException("An accepted invitation cannot be revoked.");
-        RevokedAtUtc = DateTimeOffset.UtcNow;
+        if (RevokedAtUtc is not null) throw new InvalidOperationException("Invitation has already been revoked.");
+        RevokedAtUtc = now;
         MarkUpdated();
     }
 }

@@ -54,6 +54,13 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
         var response = await _client.PatchAsJsonAsync($"/api/organizations/{Guid.NewGuid()}", new { name = "Unauthorized rename" });
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task ListPendingInvitations_WhenCurrentUserIsNotMember_ReturnsNotFound()
+    {
+        var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/invitations");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }
 
 public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
@@ -100,8 +107,10 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     public Task AddInvitationAsync(OrganizationInvitation invitation, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task<OrganizationInvitation?> GetInvitationByTokenHashAsync(string tokenHash, CancellationToken cancellationToken) => Task.FromResult<OrganizationInvitation?>(null);
+    public Task<OrganizationInvitation?> GetInvitationByIdAsync(Guid invitationId, CancellationToken cancellationToken) => Task.FromResult<OrganizationInvitation?>(null);
     public Task<bool> HasPendingInvitationAsync(Guid organizationId, string email, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> IsEmailMemberAsync(Guid organizationId, string email, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<IReadOnlyCollection<OrganizationSummary>> ListForUserAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<OrganizationSummary>>(_organizations.Where(x => x.Members.Any(m => m.UserId == userId)).Select(x => new OrganizationSummary(x.Id, x.Name, x.Slug, x.Members.Single(m => m.UserId == userId).Role)).ToArray());
     public Task<OrganizationDetails?> GetForUserAsync(Guid organizationId, Guid userId, CancellationToken cancellationToken) => Task.FromResult<OrganizationDetails?>(null);
+    public Task<IReadOnlyCollection<PendingInvitationDto>> ListPendingInvitationsAsync(Guid organizationId, DateTimeOffset now, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<PendingInvitationDto>>([]);
 }

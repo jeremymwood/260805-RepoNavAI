@@ -40,6 +40,17 @@ public sealed class OrganizationsController(ISender sender) : ControllerBase
         return StatusCode(StatusCodes.Status201Created, invitation);
     }
 
+    [HttpGet("{organizationId:guid}/invitations")]
+    public Task<IReadOnlyCollection<PendingInvitationDto>> ListInvitations(Guid organizationId, CancellationToken cancellationToken) =>
+        sender.Send(new ListPendingOrganizationInvitationsQuery(organizationId), cancellationToken);
+
+    [HttpDelete("{organizationId:guid}/invitations/{invitationId:guid}")]
+    public async Task<IActionResult> RevokeInvitation(Guid organizationId, Guid invitationId, CancellationToken cancellationToken)
+    {
+        await sender.Send(new RevokeOrganizationInvitationCommand(organizationId, invitationId), cancellationToken);
+        return NoContent();
+    }
+
     [HttpPost("invitations/{token}/accept")]
     public Task<OrganizationSummary> AcceptInvitation(string token, CancellationToken cancellationToken) => sender.Send(new AcceptOrganizationInvitationCommand(token), cancellationToken);
 

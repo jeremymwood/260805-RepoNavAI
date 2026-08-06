@@ -12,6 +12,8 @@ public sealed record ListOrganizationsQuery : IRequest<IReadOnlyCollection<Organ
 public sealed record GetOrganizationQuery(Guid OrganizationId) : IRequest<OrganizationDetails>;
 public sealed record RenameOrganizationCommand(Guid OrganizationId, string Name) : IRequest;
 public sealed record InviteOrganizationMemberCommand(Guid OrganizationId, string Email, OrganizationRole Role) : IRequest<InvitationResult>;
+public sealed record ListPendingOrganizationInvitationsQuery(Guid OrganizationId) : IRequest<IReadOnlyCollection<PendingInvitationDto>>;
+public sealed record RevokeOrganizationInvitationCommand(Guid OrganizationId, Guid InvitationId) : IRequest;
 public sealed record AcceptOrganizationInvitationCommand(string Token) : IRequest<OrganizationSummary>;
 public sealed record ChangeOrganizationMemberRoleCommand(Guid OrganizationId, Guid UserId, OrganizationRole Role) : IRequest;
 public sealed record RemoveOrganizationMemberCommand(Guid OrganizationId, Guid UserId) : IRequest;
@@ -108,6 +110,28 @@ public sealed class AcceptOrganizationInvitationHandler(IOrganizationRepository 
         invitation.Accept(timeProvider.GetUtcNow());
         await repository.SaveChangesAsync(cancellationToken);
         return (await queries.ListForUserAsync(currentUser.UserId, cancellationToken)).Single(x => x.Id == organization.Id);
+    }
+}
+
+public sealed class ListPendingOrganizationInvitationsHandler(IOrganizationAccess access, IOrganizationQueries queries, ICurrentUser currentUser, TimeProvider timeProvider) : IRequestHandler<ListPendingOrganizationInvitationsQuery, IReadOnlyCollection<PendingInvitationDto>>
+{
+    public async Task<IReadOnlyCollection<PendingInvitationDto>> Handle(ListPendingOrganizationInvitationsQuery request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Administrator, cancellationToken);
+        return await queries.ListPendingInvitationsAsync(request.OrganizationId, timeProvider.GetUtcNow(), cancellationToken);
+    }
+}
+
+public sealed class RevokeOrganizationInvitationHandler(IOrganizationAccess access, IOrganizationRepository repository, ICurrentUser currentUser, TimeProvider timeProvider) : IRequestHandler<RevokeOrganizationInvitationCommand>
+{
+    public async Task Handle(RevokeOrganizationInvitationCommand request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Administrator, cancellationToken);
+        var invitation = await repository.GetInvitationByIdAsync(request.InvitationId, cancellationToken);
+        if (invitation is null || invitation.OrganizationId != request.OrganizationId) throw new NotFoundException("Invitation was not found.");
+        if (!invitation.IsPending(timeProvider.GetUtcNow())) throw new ConflictException("Invitation is no longer pending.");
+        invitation.Revoke(timeProvider.GetUtcNow());
+        await repository.SaveChangesAsync(cancellationToken);
     }
 }
 
