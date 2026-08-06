@@ -2,7 +2,7 @@
 
 RepoNav AI is an AI-powered engineering workspace for understanding unfamiliar codebases. It is designed to explain request paths, dependencies, architecture, change impact, and technical debt with answers grounded in repository content.
 
-The current foundation includes a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, a polished React workspace shell, and organization-scoped tenancy with role-based membership and secure invitations.
+The current foundation includes a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, a polished React workspace shell, organization-scoped tenancy, and verified GitHub repository registration.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md) and [ADR-002](docs/architecture/ADR-002-organization-tenancy.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), and [ADR-003](docs/architecture/ADR-003-github-repository-registration.md).
 
 ## Repository structure
 
@@ -69,6 +69,7 @@ Useful configuration keys:
 | `Jwt__SigningKey` | JWT HMAC key, minimum 32 characters |
 | `Admin__Email`, `Admin__Password` | Idempotent administrator seed |
 | `Cors__AllowedOrigins__0` | Trusted frontend origin |
+| `GitHub__AccessToken` | Optional locally for public repositories; required for permitted private repositories |
 
 ## Docker Compose
 
@@ -103,9 +104,8 @@ GitHub Actions runs these checks for pushes to `main` and pull requests.
 
 ## Roadmap
 
-1. Projects and repository-provider registration
-2. Repository-provider credentials and webhook security
-3. Durable repository indexing workers and webhook ingestion
+1. Repository-provider credentials and webhook security
+2. Durable repository indexing workers and webhook ingestion
 4. Chunking, embeddings, vector-store abstraction, and semantic search
 5. Streaming repository chat with citations and RAG evaluation
 6. Architecture summaries and dependency graphs

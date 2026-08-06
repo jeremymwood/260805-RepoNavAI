@@ -16,6 +16,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RepoNavAI.Application.Organizations;
 using RepoNavAI.Domain.Organizations;
+using RepoNavAI.Application.Repositories;
+using RepoNavAI.Domain.Repositories;
 using Xunit;
 
 namespace RepoNavAI.Api.IntegrationTests;
@@ -61,6 +63,27 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
         var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/invitations");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task RegisterRepository_WhenCurrentUserIsNotMember_ReturnsNotFound()
+    {
+        var response = await _client.PostAsJsonAsync($"/api/organizations/{Guid.NewGuid()}/repositories", new { url = "https://github.com/openai/openai-dotnet" });
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task RegisterRepository_AsOrganizationMember_CreatesPendingIndexingRequest()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Repository Test {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+
+        var response = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/platform" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var repository = await response.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+        repository!.FullName.Should().Be("acme/platform");
+        repository.IndexingStatus.Should().Be(IndexingRequestStatus.Pending);
+    }
 }
 
 public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
@@ -76,9 +99,15 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IOrganizationRepository>();
             services.RemoveAll<IOrganizationQueries>();
+            services.RemoveAll<IRepositoryRegistrationRepository>();
+            services.RemoveAll<IRepositoryQueries>();
+            services.RemoveAll<IRepositoryProvider>();
             services.AddSingleton<TestOrganizationStore>();
             services.AddSingleton<IOrganizationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IOrganizationQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
+            services.AddSingleton<IRepositoryRegistrationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
+            services.AddSingleton<IRepositoryQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
+            services.AddSingleton<IRepositoryProvider, TestRepositoryProvider>();
             services.AddAuthentication(options => { options.DefaultAuthenticateScheme = TestAuthenticationHandler.AuthenticationScheme; options.DefaultChallengeScheme = TestAuthenticationHandler.AuthenticationScheme; })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.AuthenticationScheme, _ => { });
         });
@@ -98,9 +127,10 @@ public sealed class TestAuthenticationHandler(IOptionsMonitor<AuthenticationSche
     }
 }
 
-public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizationQueries
+public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizationQueries, IRepositoryRegistrationRepository, IRepositoryQueries
 {
     private readonly List<Organization> _organizations = [];
+    private readonly List<(RegisteredRepository Repository, RepositoryIndexingRequest Request)> _repositories = [];
     public Task AddAsync(Organization organization, CancellationToken cancellationToken) { _organizations.Add(organization); return Task.CompletedTask; }
     public Task<Organization?> GetWithMembersAsync(Guid organizationId, CancellationToken cancellationToken) => Task.FromResult(_organizations.SingleOrDefault(x => x.Id == organizationId));
     public Task<bool> SlugExistsAsync(string slug, CancellationToken cancellationToken) => Task.FromResult(_organizations.Any(x => x.Slug == slug));
@@ -113,4 +143,13 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task<IReadOnlyCollection<OrganizationSummary>> ListForUserAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<OrganizationSummary>>(_organizations.Where(x => x.Members.Any(m => m.UserId == userId)).Select(x => new OrganizationSummary(x.Id, x.Name, x.Slug, x.Members.Single(m => m.UserId == userId).Role)).ToArray());
     public Task<OrganizationDetails?> GetForUserAsync(Guid organizationId, Guid userId, CancellationToken cancellationToken) => Task.FromResult<OrganizationDetails?>(null);
     public Task<IReadOnlyCollection<PendingInvitationDto>> ListPendingInvitationsAsync(Guid organizationId, DateTimeOffset now, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<PendingInvitationDto>>([]);
+    public Task<bool> ExistsAsync(Guid organizationId, string owner, string name, CancellationToken cancellationToken) => Task.FromResult(_repositories.Any(x => x.Repository.OrganizationId == organizationId && x.Repository.Owner == owner && x.Repository.Name == name));
+    public Task AddAsync(RegisteredRepository repository, RepositoryIndexingRequest indexingRequest, CancellationToken cancellationToken) { _repositories.Add((repository, indexingRequest)); return Task.CompletedTask; }
+    public Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryDto>>(_repositories.Where(x => x.Repository.OrganizationId == organizationId).Select(x => new RepositoryDto(x.Repository.Id, x.Repository.OrganizationId, x.Repository.Owner, x.Repository.Name, x.Repository.FullName, x.Repository.DefaultBranch, x.Repository.Visibility, x.Repository.WebUrl, x.Request.Status, x.Repository.CreatedAtUtc)).ToArray());
+}
+
+public sealed class TestRepositoryProvider : IRepositoryProvider
+{
+    public Task<ProviderRepository?> GetAsync(GitHubRepositoryAddress address, CancellationToken cancellationToken) =>
+        Task.FromResult<ProviderRepository?>(new ProviderRepository("123", address.Owner, address.Name, "main", RepositoryVisibility.Private, $"https://github.com/{address.Owner}/{address.Name}"));
 }

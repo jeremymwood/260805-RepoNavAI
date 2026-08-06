@@ -1,4 +1,5 @@
 using RepoNavAI.Domain.Common;
+using RepoNavAI.Domain.Repositories;
 
 namespace RepoNavAI.Domain.Organizations;
 
@@ -16,6 +17,7 @@ public sealed class Organization : Entity
     public string Slug { get; private set; } = string.Empty;
     public ICollection<OrganizationMember> Members { get; private set; } = new List<OrganizationMember>();
     public ICollection<Project> Projects { get; private set; } = new List<Project>();
+    public ICollection<RegisteredRepository> Repositories { get; private set; } = new List<RegisteredRepository>();
 
     public void Rename(string name)
     {
