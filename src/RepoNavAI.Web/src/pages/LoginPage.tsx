@@ -4,4 +4,35 @@ import { ArrowRight } from 'lucide-react';
 import { getApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { AuthLayout } from './AuthLayout';
-export function LoginPage(){const{user,login}=useAuth();const navigate=useNavigate();const location=useLocation();const[email,setEmail]=useState('');const[password,setPassword]=useState('');const[error,setError]=useState('');const[busy,setBusy]=useState(false);if(user)return <Navigate to="/" replace/>;async function submit(event:FormEvent){event.preventDefault();setError('');setBusy(true);try{await login({email,password});const from=(location.state as {from?:{pathname?:string}}|null)?.from?.pathname;navigate(from??'/',{replace:true});}catch(reason){setError(getApiError(reason));}finally{setBusy(false);}}return <AuthLayout><p className="eyebrow">Welcome back</p><h2 className="auth-title">Sign in to your workspace</h2><p className="auth-copy">Continue exploring your codebase with context.</p><form className="mt-8 space-y-5" onSubmit={submit}>{error&&<div className="error" role="alert">{error}</div>}<label className="field">Email address<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com"/></label><label className="field">Password<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password"/></label><button className="primary-button" disabled={busy}>{busy?'Signing in…':<>Sign in <ArrowRight size={18}/></>}</button></form><p className="mt-7 text-center text-sm text-slate-500">New to RepoNav AI? <Link className="font-semibold text-brand-600 hover:text-brand-700" to="/register">Create an account</Link></p></AuthLayout>;}
+
+interface ReturnLocation { pathname?: string; search?: string; hash?: string }
+
+export function LoginPage() {
+  const { user, login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const from = (location.state as { from?: ReturnLocation } | null)?.from;
+  const destination = from?.pathname ? `${from.pathname}${from.search ?? ''}${from.hash ?? ''}` : '/';
+
+  if (user) return <Navigate to={destination} replace />;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await login({ email, password });
+      navigate(destination, { replace: true });
+    } catch (reason) {
+      setError(getApiError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <AuthLayout><p className="eyebrow">Welcome back</p><h2 className="auth-title">Sign in to your workspace</h2><p className="auth-copy">Continue exploring your codebase with context.</p><form className="mt-8 space-y-5" onSubmit={submit}>{error && <div className="error" role="alert">{error}</div>}<label className="field">Email address<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" /></label><label className="field">Password<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} placeholder="Enter your password" /></label><button className="primary-button" disabled={busy}>{busy ? 'Signing in…' : <>Sign in <ArrowRight size={18} /></>}</button></form><p className="mt-7 text-center text-sm text-slate-500">New to RepoNav AI? <Link className="font-semibold text-brand-600 hover:text-brand-700" to="/register" state={location.state}>Create an account</Link></p></AuthLayout>;
+}
