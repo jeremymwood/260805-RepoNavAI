@@ -43,6 +43,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         {
             entity.ToTable("OrganizationMembers");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.HasIndex(x => new { x.OrganizationId, x.UserId }).IsUnique();
             entity.Property(x => x.Role).HasConversion<string>().HasMaxLength(32);
             entity.HasOne(x => x.Organization).WithMany(x => x.Members).HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
