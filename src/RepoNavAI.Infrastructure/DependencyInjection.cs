@@ -6,9 +6,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using RepoNavAI.Application.Authentication;
+using RepoNavAI.Application.Organizations;
 using RepoNavAI.Infrastructure.Authentication;
 using RepoNavAI.Infrastructure.Identity;
 using RepoNavAI.Infrastructure.Persistence;
+using RepoNavAI.Infrastructure.Organizations;
 
 namespace RepoNavAI.Infrastructure;
 
@@ -47,6 +49,9 @@ public static class DependencyInjection
         services.AddAuthorization();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddSingleton<ITokenService, TokenService>();
+        services.AddScoped<IOrganizationRepository, OrganizationRepository>();
+        services.AddScoped<IOrganizationQueries, OrganizationQueries>();
+        services.AddSingleton<IInvitationTokenService, InvitationTokenService>();
         return services;
     }
 }

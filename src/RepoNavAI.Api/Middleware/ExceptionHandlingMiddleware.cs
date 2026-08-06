@@ -16,6 +16,9 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
                 ValidationException validation => (StatusCodes.Status400BadRequest, "Validation failed", validation.Errors.GroupBy(x => x.PropertyName).ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray()) as object),
                 ConflictException => (StatusCodes.Status409Conflict, exception.Message, null),
                 UnauthorizedException => (StatusCodes.Status401Unauthorized, exception.Message, null),
+                ForbiddenException => (StatusCodes.Status403Forbidden, exception.Message, null),
+                NotFoundException => (StatusCodes.Status404NotFound, exception.Message, null),
+                InvalidOperationException => (StatusCodes.Status409Conflict, exception.Message, null),
                 _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.", null)
             };
             if (status == 500) logger.LogError(exception, "Unhandled request exception");

@@ -11,6 +11,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 {
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
+    public DbSet<OrganizationInvitation> OrganizationInvitations => Set<OrganizationInvitation>();
     public DbSet<Project> Projects => Set<Project>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -46,6 +47,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(x => x.Role).HasConversion<string>().HasMaxLength(32);
             entity.HasOne(x => x.Organization).WithMany(x => x.Members).HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<OrganizationInvitation>(entity =>
+        {
+            entity.ToTable("OrganizationInvitations");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Email).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.Email });
+            entity.HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.InvitedByUserId).OnDelete(DeleteBehavior.Restrict);
         });
         builder.Entity<Project>(entity =>
         {

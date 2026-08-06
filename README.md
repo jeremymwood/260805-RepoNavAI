@@ -2,7 +2,7 @@
 
 RepoNav AI is an AI-powered engineering workspace for understanding unfamiliar codebases. It is designed to explain request paths, dependencies, architecture, change impact, and technical debt with answers grounded in repository content.
 
-Phase 1 establishes the production foundation: a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, and a polished React workspace shell.
+The current foundation includes a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, a polished React workspace shell, and organization-scoped tenancy with role-based membership and secure invitations.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md) and [ADR-002](docs/architecture/ADR-002-organization-tenancy.md).
 
 ## Repository structure
 
@@ -30,6 +30,7 @@ src/
   RepoNavAI.Web/             React, TypeScript, Vite, Tailwind
 tests/
   RepoNavAI.Application.Tests/
+  RepoNavAI.Api.IntegrationTests/
 docs/architecture/           Architecture decision records
 .github/workflows/           Continuous integration
 ```
@@ -102,8 +103,8 @@ GitHub Actions runs these checks for pushes to `main` and pull requests.
 
 ## Roadmap
 
-1. Organizations, memberships, tenant authorization, and invitations
-2. Projects and repository-provider registration
+1. Projects and repository-provider registration
+2. Repository-provider credentials and webhook security
 3. Durable repository indexing workers and webhook ingestion
 4. Chunking, embeddings, vector-store abstraction, and semantic search
 5. Streaming repository chat with citations and RAG evaluation
@@ -111,4 +112,4 @@ GitHub Actions runs these checks for pushes to `main` and pull requests.
 7. Documentation and technical-debt analysis
 8. Test/refactoring suggestions, health dashboards, and administration
 
-Phase 2 should begin with tenant-bound authorization policies before exposing organization or project mutations.
+Organization membership is the tenant boundary. All future project and repository operations must retain the tenant-scoped authorization model documented in ADR-002.
