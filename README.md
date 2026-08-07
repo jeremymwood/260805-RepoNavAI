@@ -17,7 +17,7 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), and [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), and [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md).
 
 ## Repository structure
 

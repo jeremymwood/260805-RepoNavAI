@@ -115,7 +115,7 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
         if (job is null) { await transaction.CommitAsync(cancellationToken); return null; }
         await db.Entry(job).Reference(x => x.Repository).LoadAsync(cancellationToken); job.Start(now, TimeSpan.FromMinutes(options.Value.LeaseMinutes)); await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return job;
     }
-    public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, CancellationToken cancellationToken)
+    public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, IRepositoryEndpointAnalyzer endpointAnalyzer, CancellationToken cancellationToken)
     {
         if (await db.RepositorySnapshots.AnyAsync(x => x.RepositoryId == job.RepositoryId && x.CommitSha == data.CommitSha, cancellationToken)) return;
         var snapshot = new RepositorySnapshot(job.OrganizationId, job.RepositoryId, data.CommitSha);
@@ -125,6 +125,8 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
             var document = new RepositoryDocument(job.OrganizationId, snapshot.Id, file.Path, file.Language, hash, file.Content.Length, text); snapshot.Documents.Add(document);
             foreach (var symbol in parser.Parse(file.Path, file.Content)) document.Symbols.Add(new RepositorySymbol(job.OrganizationId, document.Id, symbol.Name, symbol.QualifiedName, symbol.Kind, symbol.Line));
         }
+        foreach (var endpoint in endpointAnalyzer.Analyze(data.Files))
+            snapshot.Endpoints.Add(new RepositoryEndpoint(job.OrganizationId, snapshot.Id, endpoint.HttpMethod, endpoint.Route, endpoint.Handler, endpoint.Path, endpoint.Line, endpoint.RequiresAuthorization, System.Text.Json.JsonSerializer.Serialize(endpoint.DownstreamSymbols)));
         job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(options.Value.LeaseMinutes));
         await db.RepositorySnapshots.AddAsync(snapshot, cancellationToken); await db.SaveChangesAsync(cancellationToken);
     }
@@ -147,13 +149,13 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
         try
         {
             if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
-            var provider = scope.ServiceProvider.GetRequiredService<IRepositorySnapshotProvider>(); var parser = scope.ServiceProvider.GetRequiredService<ISourceSymbolParser>();
+            var provider = scope.ServiceProvider.GetRequiredService<IRepositorySnapshotProvider>(); var parser = scope.ServiceProvider.GetRequiredService<ISourceSymbolParser>(); var endpointAnalyzer = scope.ServiceProvider.GetRequiredService<IRepositoryEndpointAnalyzer>();
             var data = await provider.FetchAsync(job.Repository.Owner, job.Repository.Name, job.Repository.DefaultBranch, cancellationToken);
             await store.RefreshAsync(job, cancellationToken);
             if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
             job.Advance(IndexingCheckpoint.Parsing, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(options.Value.LeaseMinutes), data.CommitSha); await store.SaveChangesAsync(cancellationToken);
             if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
-            await store.PersistAsync(job, data, parser, cancellationToken); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken);
+            await store.PersistAsync(job, data, parser, endpointAnalyzer, cancellationToken); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

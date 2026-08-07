@@ -15,6 +15,24 @@ public sealed class RepositorySnapshot : Entity
     public string CommitSha { get; private set; } = string.Empty;
     public RegisteredRepository Repository { get; private set; } = null!;
     public ICollection<RepositoryDocument> Documents { get; private set; } = new List<RepositoryDocument>();
+    public ICollection<RepositoryEndpoint> Endpoints { get; private set; } = new List<RepositoryEndpoint>();
+}
+
+public sealed class RepositoryEndpoint : Entity
+{
+    private RepositoryEndpoint() { }
+    public RepositoryEndpoint(Guid organizationId, Guid snapshotId, string httpMethod, string route, string handler, string path, int line, bool requiresAuthorization, string? downstreamSymbols) : base(Guid.NewGuid())
+    { OrganizationId = organizationId; SnapshotId = snapshotId; HttpMethod = httpMethod; Route = route; Handler = handler; Path = path; Line = line; RequiresAuthorization = requiresAuthorization; DownstreamSymbols = downstreamSymbols; }
+    public Guid OrganizationId { get; private set; }
+    public Guid SnapshotId { get; private set; }
+    public string HttpMethod { get; private set; } = string.Empty;
+    public string Route { get; private set; } = string.Empty;
+    public string Handler { get; private set; } = string.Empty;
+    public string Path { get; private set; } = string.Empty;
+    public int Line { get; private set; }
+    public bool RequiresAuthorization { get; private set; }
+    public string? DownstreamSymbols { get; private set; }
+    public RepositorySnapshot Snapshot { get; private set; } = null!;
 }
 
 public sealed class RepositoryDocument : Entity

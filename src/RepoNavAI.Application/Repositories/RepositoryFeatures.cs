@@ -13,6 +13,7 @@ public sealed record ListRepositoriesQuery(Guid OrganizationId) : IRequest<IRead
 public sealed record GetIndexingStatusQuery(Guid OrganizationId, Guid RepositoryId) : IRequest<IndexingRequestDto>;
 public sealed record CancelIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
 public sealed record RetryIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
+public sealed record ListRepositoryEndpointsQuery(Guid OrganizationId, Guid RepositoryId, string? Method, string? Search, bool? RequiresAuthorization) : IRequest<IReadOnlyCollection<RepositoryEndpointDto>>;
 
 public sealed class RegisterRepositoryValidator : AbstractValidator<RegisterRepositoryCommand>
 {
@@ -80,5 +81,14 @@ public sealed class RetryIndexingHandler(IOrganizationAccess access, IIndexingRe
         var job = await repository.GetLatestAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
         if (job is null || job.OrganizationId != request.OrganizationId) throw new NotFoundException("Repository was not found.");
         job.Retry(); await repository.SaveChangesAsync(cancellationToken);
+    }
+}
+
+public sealed class ListRepositoryEndpointsHandler(IOrganizationAccess access, IRepositoryQueries queries, ICurrentUser currentUser) : IRequestHandler<ListRepositoryEndpointsQuery, IReadOnlyCollection<RepositoryEndpointDto>>
+{
+    public async Task<IReadOnlyCollection<RepositoryEndpointDto>> Handle(ListRepositoryEndpointsQuery request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        return await queries.ListEndpointsAsync(request.OrganizationId, request.RepositoryId, request.Method, request.Search, request.RequiresAuthorization, cancellationToken);
     }
 }
