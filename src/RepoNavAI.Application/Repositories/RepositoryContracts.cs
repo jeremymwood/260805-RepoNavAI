@@ -20,7 +20,11 @@ public sealed record GitHubRepositoryAddress(string Owner, string Name)
 }
 
 public sealed record ProviderRepository(string ProviderRepositoryId, string Owner, string Name, string DefaultBranch, RepositoryVisibility Visibility, string WebUrl);
-public sealed record RepositoryDto(Guid Id, Guid OrganizationId, string Owner, string Name, string FullName, string DefaultBranch, RepositoryVisibility Visibility, string WebUrl, IndexingRequestStatus IndexingStatus, DateTimeOffset RegisteredAtUtc);
+public sealed record RepositoryDto(Guid Id, Guid OrganizationId, string Owner, string Name, string FullName, string DefaultBranch, RepositoryVisibility Visibility, string WebUrl, IndexingRequestStatus IndexingStatus, DateTimeOffset RegisteredAtUtc, IndexingCheckpoint IndexingCheckpoint = IndexingCheckpoint.Queued, string? CommitSha = null, string? ErrorMessage = null);
+public sealed record IndexingRequestDto(Guid Id, Guid RepositoryId, IndexingRequestStatus Status, IndexingCheckpoint Checkpoint, int AttemptCount, string? CommitSha, string? ErrorCode, string? ErrorMessage, DateTimeOffset CreatedAtUtc, DateTimeOffset? CompletedAtUtc);
+public sealed record RepositorySourceFile(string Path, string Language, byte[] Content);
+public sealed record ParsedSymbol(string Name, string QualifiedName, SymbolKind Kind, int Line);
+public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollection<RepositorySourceFile> Files);
 
 public interface IRepositoryProvider
 {
@@ -37,4 +41,18 @@ public interface IRepositoryRegistrationRepository
 public interface IRepositoryQueries
 {
     Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken);
+    Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
 }
+
+public interface IIndexingRequestRepository
+{
+    Task<RepositoryIndexingRequest?> GetLatestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public interface IRepositorySnapshotProvider
+{
+    Task<RepositorySnapshotData> FetchAsync(string owner, string name, string branch, CancellationToken cancellationToken);
+}
+
+public interface ISourceSymbolParser { IReadOnlyCollection<ParsedSymbol> Parse(string path, byte[] content); }

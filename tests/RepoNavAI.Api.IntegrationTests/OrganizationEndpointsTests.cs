@@ -72,6 +72,13 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 
     [Fact]
+    public async Task GetIndexingStatus_WhenCurrentUserIsNotMember_ReturnsNotFound()
+    {
+        var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/indexing");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task RegisterRepository_AsOrganizationMember_CreatesPendingIndexingRequest()
     {
         var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Repository Test {Guid.NewGuid():N}" });
@@ -93,7 +100,8 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Jwt:SigningKey"] = "TEST-ONLY-SIGNING-KEY-32-CHARACTERS-MINIMUM"
+            ["Jwt:SigningKey"] = "TEST-ONLY-SIGNING-KEY-32-CHARACTERS-MINIMUM",
+            ["Indexing:WorkerEnabled"] = "false"
         }));
         builder.ConfigureTestServices(services =>
         {
@@ -146,6 +154,7 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task<bool> ExistsAsync(Guid organizationId, string owner, string name, CancellationToken cancellationToken) => Task.FromResult(_repositories.Any(x => x.Repository.OrganizationId == organizationId && x.Repository.Owner == owner && x.Repository.Name == name));
     public Task AddAsync(RegisteredRepository repository, RepositoryIndexingRequest indexingRequest, CancellationToken cancellationToken) { _repositories.Add((repository, indexingRequest)); return Task.CompletedTask; }
     public Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryDto>>(_repositories.Where(x => x.Repository.OrganizationId == organizationId).Select(x => new RepositoryDto(x.Repository.Id, x.Repository.OrganizationId, x.Repository.Owner, x.Repository.Name, x.Repository.FullName, x.Repository.DefaultBranch, x.Repository.Visibility, x.Repository.WebUrl, x.Request.Status, x.Repository.CreatedAtUtc)).ToArray());
+    public Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Where(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId).Select(x => new IndexingRequestDto(x.Request.Id, x.Request.RepositoryId, x.Request.Status, x.Request.Checkpoint, x.Request.AttemptCount, x.Request.CommitSha, x.Request.ErrorCode, x.Request.ErrorMessage, x.Request.CreatedAtUtc, x.Request.CompletedAtUtc)).FirstOrDefault());
 }
 
 public sealed class TestRepositoryProvider : IRepositoryProvider

@@ -24,4 +24,13 @@ public sealed class PersistenceTrackingTests
 
         dbContext.Entry(member).State.Should().Be(EntityState.Added);
     }
+
+    [Fact]
+    public void IndexingModel_EnforcesOneSnapshotPerRepositoryCommit()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test").Options;
+        using var dbContext = new AppDbContext(options);
+        var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositorySnapshot));
+        entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "RepositoryId", "CommitSha" }));
+    }
 }

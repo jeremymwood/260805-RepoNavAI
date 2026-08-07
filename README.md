@@ -17,7 +17,7 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), and [ADR-003](docs/architecture/ADR-003-github-repository-registration.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), and [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md).
 
 ## Repository structure
 
@@ -105,11 +105,11 @@ GitHub Actions runs these checks for pushes to `main` and pull requests.
 ## Roadmap
 
 1. Repository-provider credentials and webhook security
-2. Durable repository indexing workers and webhook ingestion
-4. Chunking, embeddings, vector-store abstraction, and semantic search
-5. Streaming repository chat with citations and RAG evaluation
-6. Architecture summaries and dependency graphs
-7. Documentation and technical-debt analysis
-8. Test/refactoring suggestions, health dashboards, and administration
+2. Webhook-driven re-indexing and additional language analyzers
+3. Chunking, embeddings, vector-store abstraction, and semantic search
+4. Streaming repository chat with citations and RAG evaluation
+5. Architecture summaries and dependency graphs
+6. Documentation and technical-debt analysis
+7. Test/refactoring suggestions, health dashboards, and administration
 
 Organization membership is the tenant boundary. All future project and repository operations must retain the tenant-scoped authorization model documented in ADR-002.
