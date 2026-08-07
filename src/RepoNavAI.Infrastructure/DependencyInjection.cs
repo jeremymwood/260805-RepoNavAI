@@ -11,6 +11,8 @@ using RepoNavAI.Infrastructure.Authentication;
 using RepoNavAI.Infrastructure.Identity;
 using RepoNavAI.Infrastructure.Persistence;
 using RepoNavAI.Infrastructure.Organizations;
+using RepoNavAI.Application.Repositories;
+using RepoNavAI.Infrastructure.Repositories;
 
 namespace RepoNavAI.Infrastructure;
 
@@ -52,6 +54,15 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
         services.AddScoped<IOrganizationQueries, OrganizationQueries>();
         services.AddSingleton<IInvitationTokenService, InvitationTokenService>();
+        services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.SectionName));
+        services.AddHttpClient<IRepositoryProvider, GitHubRepositoryProvider>(client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("RepoNavAI/1.0");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddScoped<IRepositoryRegistrationRepository, RepositoryRegistrationRepository>();
+        services.AddScoped<IRepositoryQueries, RepositoryQueries>();
         return services;
     }
 }

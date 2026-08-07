@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Infrastructure.Identity;
+using RepoNavAI.Domain.Repositories;
 
 namespace RepoNavAI.Infrastructure.Persistence;
 
@@ -13,6 +14,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
     public DbSet<OrganizationInvitation> OrganizationInvitations => Set<OrganizationInvitation>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<RegisteredRepository> RegisteredRepositories => Set<RegisteredRepository>();
+    public DbSet<RepositoryIndexingRequest> RepositoryIndexingRequests => Set<RepositoryIndexingRequest>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -69,6 +72,33 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(x => x.Description).HasMaxLength(1000);
             entity.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique();
             entity.HasOne(x => x.Organization).WithMany(x => x.Projects).HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<RegisteredRepository>(entity =>
+        {
+            entity.ToTable("RegisteredRepositories");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.ProviderRepositoryId).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Owner).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            entity.Ignore(x => x.FullName);
+            entity.Property(x => x.DefaultBranch).HasMaxLength(255).IsRequired();
+            entity.Property(x => x.Visibility).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.WebUrl).HasMaxLength(2048).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.Provider, x.Owner, x.Name }).IsUnique();
+            entity.HasOne(x => x.Organization).WithMany(x => x.Repositories).HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RegisteredByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<RepositoryIndexingRequest>(entity =>
+        {
+            entity.ToTable("RepositoryIndexingRequests");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            entity.HasIndex(x => new { x.OrganizationId, x.Status });
+            entity.HasOne(x => x.Repository).WithMany(x => x.IndexingRequests).HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
