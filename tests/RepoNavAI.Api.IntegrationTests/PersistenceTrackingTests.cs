@@ -33,4 +33,13 @@ public sealed class PersistenceTrackingTests
         var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositorySnapshot));
         entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "RepositoryId", "CommitSha" }));
     }
+
+    [Fact]
+    public void EndpointModel_EnforcesOneRouteHandlerPerSnapshot()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test").Options;
+        using var dbContext = new AppDbContext(options);
+        var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryEndpoint));
+        entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "SnapshotId", "HttpMethod", "Route", "Handler" }));
+    }
 }

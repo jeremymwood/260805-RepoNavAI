@@ -25,6 +25,8 @@ public sealed record IndexingRequestDto(Guid Id, Guid RepositoryId, IndexingRequ
 public sealed record RepositorySourceFile(string Path, string Language, byte[] Content);
 public sealed record ParsedSymbol(string Name, string QualifiedName, SymbolKind Kind, int Line);
 public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollection<RepositorySourceFile> Files);
+public sealed record ParsedEndpoint(string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols);
+public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols, string CommitSha, string SourceUrl);
 
 public interface IRepositoryProvider
 {
@@ -42,6 +44,7 @@ public interface IRepositoryQueries
 {
     Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken);
     Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken);
 }
 
 public interface IIndexingRequestRepository
@@ -56,3 +59,4 @@ public interface IRepositorySnapshotProvider
 }
 
 public interface ISourceSymbolParser { IReadOnlyCollection<ParsedSymbol> Parse(string path, byte[] content); }
+public interface IRepositoryEndpointAnalyzer { IReadOnlyCollection<ParsedEndpoint> Analyze(IReadOnlyCollection<RepositorySourceFile> files); }

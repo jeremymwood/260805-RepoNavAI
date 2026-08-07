@@ -30,6 +30,10 @@ public sealed class RepositoriesController(ISender sender) : ControllerBase
 
     [HttpPost("{repositoryId:guid}/indexing/retry")]
     public async Task<IActionResult> Retry(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new RetryIndexingCommand(organizationId, repositoryId), cancellationToken); return NoContent(); }
+
+    [HttpGet("{repositoryId:guid}/endpoints")]
+    public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpoints(Guid organizationId, Guid repositoryId, [FromQuery] string? method, [FromQuery] string? search, [FromQuery] bool? requiresAuthorization, CancellationToken cancellationToken) =>
+        sender.Send(new ListRepositoryEndpointsQuery(organizationId, repositoryId, method, search, requiresAuthorization), cancellationToken);
 }
 
 public sealed record RegisterRepositoryRequest(string Url);

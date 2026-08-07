@@ -19,6 +19,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositorySnapshot> RepositorySnapshots => Set<RepositorySnapshot>();
     public DbSet<RepositoryDocument> RepositoryDocuments => Set<RepositoryDocument>();
     public DbSet<RepositorySymbol> RepositorySymbols => Set<RepositorySymbol>();
+    public DbSet<RepositoryEndpoint> RepositoryEndpoints => Set<RepositoryEndpoint>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -124,6 +125,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.ToTable("RepositorySymbols"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.Name).HasMaxLength(255).IsRequired(); entity.Property(x => x.QualifiedName).HasMaxLength(1024).IsRequired(); entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(32);
             entity.HasIndex(x => new { x.DocumentId, x.QualifiedName, x.Kind }); entity.HasOne(x => x.Document).WithMany(x => x.Symbols).HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<RepositoryEndpoint>(entity =>
+        {
+            entity.ToTable("RepositoryEndpoints"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.HttpMethod).HasMaxLength(16).IsRequired(); entity.Property(x => x.Route).HasMaxLength(2048).IsRequired(); entity.Property(x => x.Handler).HasMaxLength(1024).IsRequired(); entity.Property(x => x.Path).HasMaxLength(1024).IsRequired(); entity.Property(x => x.DownstreamSymbols).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.SnapshotId, x.HttpMethod, x.Route, x.Handler }).IsUnique(); entity.HasOne(x => x.Snapshot).WithMany(x => x.Endpoints).HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

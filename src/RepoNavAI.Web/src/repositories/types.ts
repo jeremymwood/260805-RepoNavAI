@@ -17,3 +17,8 @@ export interface RegisteredRepository {
   errorMessage?: string;
   registeredAtUtc: string;
 }
+
+export interface RepositoryEndpoint {
+  id: string; httpMethod: string; route: string; handler: string; path: string; line: number;
+  requiresAuthorization: boolean; downstreamSymbols: string[]; commitSha: string; sourceUrl: string;
+}
