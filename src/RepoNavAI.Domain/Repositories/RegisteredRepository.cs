@@ -32,6 +32,7 @@ public sealed class RegisteredRepository : Entity
     public Guid RegisteredByUserId { get; private set; }
     public Organization Organization { get; private set; } = null!;
     public ICollection<RepositoryIndexingRequest> IndexingRequests { get; private set; } = new List<RepositoryIndexingRequest>();
+    public ICollection<RepositorySnapshot> Snapshots { get; private set; } = new List<RepositorySnapshot>();
 
     private static string Require(string value, string parameter) =>
         string.IsNullOrWhiteSpace(value) ? throw new ArgumentException("Value is required.", parameter) : value.Trim();

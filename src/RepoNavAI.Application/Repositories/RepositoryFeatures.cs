@@ -10,6 +10,9 @@ namespace RepoNavAI.Application.Repositories;
 
 public sealed record RegisterRepositoryCommand(Guid OrganizationId, string Url) : IRequest<RepositoryDto>;
 public sealed record ListRepositoriesQuery(Guid OrganizationId) : IRequest<IReadOnlyCollection<RepositoryDto>>;
+public sealed record GetIndexingStatusQuery(Guid OrganizationId, Guid RepositoryId) : IRequest<IndexingRequestDto>;
+public sealed record CancelIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
+public sealed record RetryIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
 
 public sealed class RegisterRepositoryValidator : AbstractValidator<RegisterRepositoryCommand>
 {
@@ -46,5 +49,36 @@ public sealed class ListRepositoriesHandler(IOrganizationAccess access, IReposit
     {
         await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
         return await queries.ListAsync(request.OrganizationId, cancellationToken);
+    }
+}
+
+public sealed class GetIndexingStatusHandler(IOrganizationAccess access, IRepositoryQueries queries, ICurrentUser currentUser) : IRequestHandler<GetIndexingStatusQuery, IndexingRequestDto>
+{
+    public async Task<IndexingRequestDto> Handle(GetIndexingStatusQuery request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        return await queries.GetIndexingRequestAsync(request.OrganizationId, request.RepositoryId, cancellationToken) ?? throw new NotFoundException("Repository was not found.");
+    }
+}
+
+public sealed class CancelIndexingHandler(IOrganizationAccess access, IIndexingRequestRepository repository, ICurrentUser currentUser, TimeProvider timeProvider) : IRequestHandler<CancelIndexingCommand>
+{
+    public async Task Handle(CancelIndexingCommand request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        var job = await repository.GetLatestAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
+        if (job is null || job.OrganizationId != request.OrganizationId) throw new NotFoundException("Repository was not found.");
+        job.RequestCancellation(timeProvider.GetUtcNow()); await repository.SaveChangesAsync(cancellationToken);
+    }
+}
+
+public sealed class RetryIndexingHandler(IOrganizationAccess access, IIndexingRequestRepository repository, ICurrentUser currentUser) : IRequestHandler<RetryIndexingCommand>
+{
+    public async Task Handle(RetryIndexingCommand request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        var job = await repository.GetLatestAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
+        if (job is null || job.OrganizationId != request.OrganizationId) throw new NotFoundException("Repository was not found.");
+        job.Retry(); await repository.SaveChangesAsync(cancellationToken);
     }
 }

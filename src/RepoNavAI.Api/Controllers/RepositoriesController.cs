@@ -21,6 +21,15 @@ public sealed class RepositoriesController(ISender sender) : ControllerBase
         var repository = await sender.Send(new RegisterRepositoryCommand(organizationId, request.Url), cancellationToken);
         return StatusCode(StatusCodes.Status201Created, repository);
     }
+
+    [HttpGet("{repositoryId:guid}/indexing")]
+    public Task<IndexingRequestDto> GetIndexingStatus(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => sender.Send(new GetIndexingStatusQuery(organizationId, repositoryId), cancellationToken);
+
+    [HttpPost("{repositoryId:guid}/indexing/cancel")]
+    public async Task<IActionResult> Cancel(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new CancelIndexingCommand(organizationId, repositoryId), cancellationToken); return NoContent(); }
+
+    [HttpPost("{repositoryId:guid}/indexing/retry")]
+    public async Task<IActionResult> Retry(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new RetryIndexingCommand(organizationId, repositoryId), cancellationToken); return NoContent(); }
 }
 
 public sealed record RegisterRepositoryRequest(string Url);

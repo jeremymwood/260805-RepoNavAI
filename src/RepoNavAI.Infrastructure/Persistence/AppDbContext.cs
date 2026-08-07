@@ -16,6 +16,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<RegisteredRepository> RegisteredRepositories => Set<RegisteredRepository>();
     public DbSet<RepositoryIndexingRequest> RepositoryIndexingRequests => Set<RepositoryIndexingRequest>();
+    public DbSet<RepositorySnapshot> RepositorySnapshots => Set<RepositorySnapshot>();
+    public DbSet<RepositoryDocument> RepositoryDocuments => Set<RepositoryDocument>();
+    public DbSet<RepositorySymbol> RepositorySymbols => Set<RepositorySymbol>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -96,9 +99,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.Checkpoint).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.CommitSha).HasMaxLength(64);
+            entity.Property(x => x.ErrorCode).HasMaxLength(64);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(500);
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
             entity.HasOne(x => x.Repository).WithMany(x => x.IndexingRequests).HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<RepositorySnapshot>(entity =>
+        {
+            entity.ToTable("RepositorySnapshots"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.CommitSha).HasMaxLength(64).IsRequired(); entity.HasIndex(x => new { x.RepositoryId, x.CommitSha }).IsUnique();
+            entity.HasOne(x => x.Repository).WithMany(x => x.Snapshots).HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<RepositoryDocument>(entity =>
+        {
+            entity.ToTable("RepositoryDocuments"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.Path).HasMaxLength(1024).IsRequired(); entity.Property(x => x.Language).HasMaxLength(32).IsRequired(); entity.Property(x => x.ContentHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.SnapshotId, x.Path }).IsUnique(); entity.HasOne(x => x.Snapshot).WithMany(x => x.Documents).HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<RepositorySymbol>(entity =>
+        {
+            entity.ToTable("RepositorySymbols"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.Name).HasMaxLength(255).IsRequired(); entity.Property(x => x.QualifiedName).HasMaxLength(1024).IsRequired(); entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(32);
+            entity.HasIndex(x => new { x.DocumentId, x.QualifiedName, x.Kind }); entity.HasOne(x => x.Document).WithMany(x => x.Symbols).HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

@@ -43,7 +43,13 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
                 repository.DefaultBranch,
                 repository.Visibility,
                 repository.WebUrl,
-                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.Status).First(),
-                repository.CreatedAtUtc))
+                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.Status).First(), repository.CreatedAtUtc,
+                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.Checkpoint).First(),
+                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.CommitSha).First(),
+                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.ErrorMessage).First()))
             .ToArrayAsync(cancellationToken);
+
+    public async Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) =>
+        await dbContext.RepositoryIndexingRequests.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId)
+            .OrderByDescending(x => x.CreatedAtUtc).Select(x => new IndexingRequestDto(x.Id, x.RepositoryId, x.Status, x.Checkpoint, x.AttemptCount, x.CommitSha, x.ErrorCode, x.ErrorMessage, x.CreatedAtUtc, x.CompletedAtUtc)).FirstOrDefaultAsync(cancellationToken);
 }

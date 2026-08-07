@@ -63,6 +63,15 @@ public static class DependencyInjection
         });
         services.AddScoped<IRepositoryRegistrationRepository, RepositoryRegistrationRepository>();
         services.AddScoped<IRepositoryQueries, RepositoryQueries>();
+        services.Configure<IndexingOptions>(configuration.GetSection(IndexingOptions.SectionName));
+        services.AddScoped<IndexingQueueStore>();
+        services.AddScoped<IIndexingRequestRepository>(provider => provider.GetRequiredService<IndexingQueueStore>());
+        services.AddSingleton<ISourceSymbolParser, CSharpSourceSymbolParser>();
+        services.AddHttpClient<IRepositorySnapshotProvider, GitHubSnapshotProvider>(client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/"); client.DefaultRequestHeaders.UserAgent.ParseAdd("RepoNavAI/1.0"); client.Timeout = TimeSpan.FromMinutes(2);
+        });
+        if (configuration.GetValue("Indexing:WorkerEnabled", true)) services.AddHostedService<RepositoryIndexingWorker>();
         return services;
     }
 }
