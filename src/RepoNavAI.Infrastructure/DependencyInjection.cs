@@ -14,6 +14,7 @@ using RepoNavAI.Infrastructure.Organizations;
 using RepoNavAI.Application.Repositories;
 using RepoNavAI.Infrastructure.Repositories;
 using Pgvector.EntityFrameworkCore;
+using Microsoft.SemanticKernel;
 
 namespace RepoNavAI.Infrastructure;
 
@@ -70,8 +71,17 @@ public static class DependencyInjection
         services.AddSingleton<ISourceSymbolParser, CSharpSourceSymbolParser>();
         services.AddSingleton<IRepositoryEndpointAnalyzer, AspNetEndpointAnalyzer>();
         services.AddSingleton<ISourceChunker, SourceChunker>();
-        services.AddOptions<OpenAIOptions>().Bind(configuration.GetSection(OpenAIOptions.SectionName)).Validate(x => x.EmbeddingDimensions == 512, "OpenAI embedding dimensions must match the configured pgvector(512) schema.").Validate(x => !string.IsNullOrWhiteSpace(x.EmbeddingModel), "An embedding model is required.").ValidateOnStart();
+        services.AddOptions<OpenAIOptions>().Bind(configuration.GetSection(OpenAIOptions.SectionName)).Validate(x => x.EmbeddingDimensions == 512, "OpenAI embedding dimensions must match the configured pgvector(512) schema.").Validate(x => !string.IsNullOrWhiteSpace(x.EmbeddingModel), "An embedding model is required.").Validate(x => x.ChatMaxOutputTokens is >= 256 and <= 4096, "Chat output tokens must be between 256 and 4096.").Validate(x => x.ChatMaximumContextCharacters is >= 8_000 and <= 100_000, "Chat context size is outside the supported range.").ValidateOnStart();
         services.AddHttpClient<IEmbeddingGenerator, OpenAIEmbeddingGenerator>(client => { client.BaseAddress = new Uri("https://api.openai.com/v1/"); client.Timeout = TimeSpan.FromMinutes(2); });
+        var openAI = configuration.GetSection(OpenAIOptions.SectionName).Get<OpenAIOptions>() ?? new OpenAIOptions();
+        if (!string.IsNullOrWhiteSpace(openAI.ApiKey))
+        {
+            services.AddOpenAIChatCompletion(openAI.ChatModel, openAI.ApiKey);
+            services.AddScoped<IRepositoryAnswerGenerator, SemanticKernelRepositoryAnswerGenerator>();
+        }
+        else services.AddSingleton<IRepositoryAnswerGenerator, UnavailableRepositoryAnswerGenerator>();
+        services.AddOptions<RepositoryChatOptions>().Bind(configuration.GetSection(RepositoryChatOptions.SectionName)).Validate(x => x.OrganizationDailyRequestLimit is >= 1 and <= 10_000, "Repository chat daily limit is outside the supported range.").ValidateOnStart();
+        services.AddScoped<IRepositoryChatSessionStore, RepositoryChatSessionStore>();
         services.AddScoped<IVectorStore, PgVectorStore>();
         services.AddHttpClient<IRepositorySnapshotProvider, GitHubSnapshotProvider>(client =>
         {

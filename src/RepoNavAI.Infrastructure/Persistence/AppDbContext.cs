@@ -23,6 +23,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositorySymbol> RepositorySymbols => Set<RepositorySymbol>();
     public DbSet<RepositoryEndpoint> RepositoryEndpoints => Set<RepositoryEndpoint>();
     public DbSet<RepositoryChunk> RepositoryChunks => Set<RepositoryChunk>();
+    public DbSet<RepositoryChatSession> RepositoryChatSessions => Set<RepositoryChatSession>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -145,6 +146,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.HasIndex("Embedding").HasMethod("hnsw").HasOperators("vector_cosine_ops").HasStorageParameter("m", 16).HasStorageParameter("ef_construction", 64);
             entity.HasOne(x => x.Snapshot).WithMany(x => x.Chunks).HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.Document).WithMany(x => x.Chunks).HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<RepositoryChatSession>(entity =>
+        {
+            entity.ToTable("RepositoryChatSessions"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.Model).HasMaxLength(100).IsRequired(); entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAtUtc });
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<RegisteredRepository>().WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -2,7 +2,7 @@
 
 RepoNav AI is an AI-powered engineering workspace for understanding unfamiliar codebases. It is designed to explain request paths, dependencies, architecture, change impact, and technical debt with answers grounded in repository content.
 
-The current foundation includes a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, a polished React workspace shell, organization-scoped tenancy, and verified GitHub repository registration.
+The current foundation includes a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, a polished React workspace shell, organization-scoped tenancy, verified GitHub repository registration, semantic search, and streamed source-grounded repository chat.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md), and [ADR-006](docs/architecture/ADR-006-semantic-search.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md), [ADR-006](docs/architecture/ADR-006-semantic-search.md), and [ADR-007](docs/architecture/ADR-007-streaming-repository-chat.md).
 
 ## Repository structure
 
@@ -72,6 +72,9 @@ Useful configuration keys:
 | `GitHub__AccessToken` | Optional locally for public repositories; required for permitted private repositories |
 | `OpenAI__ApiKey` | Required to generate and query semantic-search embeddings; never committed |
 | `OpenAI__EmbeddingModel`, `OpenAI__EmbeddingDimensions` | Embedding configuration; defaults to `text-embedding-3-small` and the schema-fixed 512 dimensions |
+| `OpenAI__ChatModel`, `OpenAI__ChatMaxOutputTokens` | Repository-chat model and bounded output size; defaults to `gpt-4.1-mini` and 1200 tokens |
+| `OpenAI__ChatMaximumContextCharacters` | Maximum retrieved source characters supplied to one answer; defaults to 32,000 |
+| `RepositoryChat__OrganizationDailyRequestLimit` | Rolling 24-hour request cap per organization; defaults to 100 |
 
 ## Docker Compose
 
@@ -83,7 +86,7 @@ docker compose up --build
 
 Open `http://localhost:5173`. PostgreSQL data persists in the `postgres-data` volume. The API waits for PostgreSQL health, applies migrations, and seeds the configured administrator. Compose deliberately has no insecure secret defaults.
 
-Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register a new repository so its immutable snapshot receives embeddings; snapshots indexed before embeddings were configured are not modified retroactively.
+Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register or explicitly re-index a repository so its immutable snapshot receives embeddings. Repository chat retrieves from the latest indexed snapshot and streams a citation-grounded answer over authenticated server-sent events.
 
 ## API
 
@@ -105,6 +108,8 @@ npm run build
 ```
 
 GitHub Actions runs these checks for pushes to `main` and pull requests.
+
+Feature-level browser checks are maintained in the [manual acceptance runbook](docs/testing/manual-acceptance.md). These checks complement automated tests for streaming, provider integration, source links, responsive layout, and other behavior that benefits from end-to-end human verification.
 
 ## Roadmap
 

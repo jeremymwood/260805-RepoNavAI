@@ -1,6 +1,9 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http.Features;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using RepoNavAI.Application.Repositories;
 
 namespace RepoNavAI.Api.Controllers;
@@ -8,8 +11,9 @@ namespace RepoNavAI.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/organizations/{organizationId:guid}/repositories")]
-public sealed class RepositoriesController(ISender sender) : ControllerBase
+public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesController> logger) : ControllerBase
 {
+    private static readonly JsonSerializerOptions StreamJsonOptions = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
     [HttpGet]
     public Task<IReadOnlyCollection<RepositoryDto>> List(Guid organizationId, CancellationToken cancellationToken) =>
         sender.Send(new ListRepositoriesQuery(organizationId), cancellationToken);
@@ -41,6 +45,42 @@ public sealed class RepositoriesController(ISender sender) : ControllerBase
     [HttpGet("{repositoryId:guid}/semantic-search")]
     public Task<IReadOnlyCollection<SemanticSearchResult>> SemanticSearch(Guid organizationId, Guid repositoryId, [FromQuery] string query, [FromQuery] int limit = 10, CancellationToken cancellationToken = default) =>
         sender.Send(new SemanticSearchQuery(organizationId, repositoryId, query, limit), cancellationToken);
+
+    [HttpPost("{repositoryId:guid}/chat")]
+    [Produces("text/event-stream")]
+    public async Task Chat(Guid organizationId, Guid repositoryId, RepositoryChatRequest request, CancellationToken cancellationToken)
+    {
+        await using var stream = sender.CreateStream(new StreamRepositoryChatQuery(organizationId, repositoryId, request.Question), cancellationToken).GetAsyncEnumerator(cancellationToken);
+        if (!await stream.MoveNextAsync()) return;
+
+        Response.StatusCode = StatusCodes.Status200OK;
+        Response.ContentType = "text/event-stream";
+        Response.Headers.CacheControl = "no-cache, no-store";
+        Response.Headers.Append("X-Accel-Buffering", "no");
+        HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+        await WriteEventAsync(stream.Current, cancellationToken);
+
+        try
+        {
+            while (await stream.MoveNextAsync()) await WriteEventAsync(stream.Current, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Repository chat stream failed for organization {OrganizationId} and repository {RepositoryId}", organizationId, repositoryId);
+            if (!cancellationToken.IsCancellationRequested)
+                await WriteEventAsync(new RepositoryChatEvent(RepositoryChatEventType.Error, "The answer provider could not complete this response. Please retry."), cancellationToken);
+        }
+    }
+
+    private async Task WriteEventAsync(RepositoryChatEvent chatEvent, CancellationToken cancellationToken)
+    {
+        var eventName = chatEvent.Type.ToString().ToLowerInvariant();
+        var payload = JsonSerializer.Serialize(chatEvent, StreamJsonOptions);
+        await Response.WriteAsync($"event: {eventName}\ndata: {payload}\n\n", cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
+    }
 }
 
 public sealed record RegisterRepositoryRequest(string Url);
+public sealed record RepositoryChatRequest(string Question);

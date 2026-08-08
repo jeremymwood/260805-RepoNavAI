@@ -29,3 +29,27 @@ public sealed class IndexingLifecycleTests
         job.Status.Should().Be(IndexingRequestStatus.Cancelled); job.Retry(); job.Status.Should().Be(IndexingRequestStatus.Pending); job.IsCancellationRequested.Should().BeFalse();
     }
 }
+
+public sealed class RepositoryChatSessionLifecycleTests
+{
+    [Fact]
+    public void Finish_RecordsTerminalStatusAndTimestamp()
+    {
+        var started = DateTimeOffset.UtcNow; var finished = started.AddSeconds(2);
+        var session = new RepositoryChatSession(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "test-model", started);
+
+        session.Finish(RepositoryChatStatus.Completed, finished);
+
+        session.Status.Should().Be(RepositoryChatStatus.Completed);
+        session.CompletedAtUtc.Should().Be(finished);
+        session.UpdatedAtUtc.Should().Be(finished);
+    }
+
+    [Fact]
+    public void Finish_RejectsNonTerminalStatus()
+    {
+        var session = new RepositoryChatSession(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "test-model", DateTimeOffset.UtcNow);
+        var act = () => session.Finish(RepositoryChatStatus.Streaming, DateTimeOffset.UtcNow);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+}

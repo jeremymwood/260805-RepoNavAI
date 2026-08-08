@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, GitBranch, Github, LockKeyhole, Plus, X } from 'lucide-react';
-import { api, getApiError } from '../api/client';
-import type { RegisteredRepository, RepositoryEndpoint, SemanticSearchResult } from './types';
+import { ExternalLink, GitBranch, Github, LockKeyhole, MessageSquareText, Plus, Square, X } from 'lucide-react';
+import { api, getApiError, streamApi } from '../api/client';
+import type { RegisteredRepository, RepositoryChatCitation, RepositoryChatEvent, RepositoryEndpoint, SemanticSearchResult } from './types';
 
 export function RepositoryPanel({ organizationId }: { organizationId: string }) {
   const queryClient = useQueryClient();
@@ -23,8 +23,28 @@ export function RepositoryPanel({ organizationId }: { organizationId: string }) 
     {repositories.isLoading ? <p className="mt-6 text-sm text-slate-500">Loading repositories…</p> : repositories.data?.length ? <div className="mt-6 grid gap-3 md:grid-cols-2">{repositories.data.map(repository => <article key={repository.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">{repository.visibility === 'Private' ? <LockKeyhole size={17}/> : <GitBranch size={17}/>}</span><div className="min-w-0 flex-1"><a className="inline-flex max-w-full items-center gap-1 font-semibold text-ink hover:text-brand-600" href={repository.webUrl} target="_blank" rel="noreferrer"><span className="truncate">{repository.fullName}</span><ExternalLink size={14}/></a><p className="mt-1 text-xs text-slate-500">{repository.visibility} · {repository.defaultBranch}</p><p className="mt-1 text-xs text-slate-400">{repository.indexingCheckpoint}{repository.commitSha ? ` · ${repository.commitSha.slice(0, 8)}` : ''}</p></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">{repository.indexingStatus}</span></div>{repository.errorMessage && <p className="mt-3 text-xs text-red-600">{repository.errorMessage}</p>}<div className="mt-3 flex gap-3">{(['Pending','Processing'].includes(repository.indexingStatus)) && <button className="text-xs font-semibold text-slate-500 hover:text-red-600" onClick={() => indexingAction.mutate({ repositoryId: repository.id, action: 'cancel' })}>Cancel</button>}{(['Failed','Cancelled'].includes(repository.indexingStatus)) && <button className="text-xs font-semibold text-brand-600" onClick={() => indexingAction.mutate({ repositoryId: repository.id, action: 'retry' })}>Retry indexing</button>}{repository.indexingStatus === 'Completed' && <button className="text-xs font-semibold text-brand-600" onClick={() => setSelected(repository)}>View API endpoints</button>}</div></article>)}</div> : <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">No repositories registered yet.</div>}
     {selected && <EndpointCatalog organizationId={organizationId} repository={selected} onClose={() => setSelected(undefined)}/>}
     {selected && <SemanticSearch organizationId={organizationId} repository={selected}/>}
+    {selected && <RepositoryChat organizationId={organizationId} repository={selected}/>}
     {selected && <button className="mt-5 text-xs font-semibold text-brand-600 disabled:opacity-50" disabled={reindex.isPending} onClick={() => reindex.mutate(selected.id)}>{reindex.isPending ? 'Queuing re-indexâ€¦' : 'Re-index this repository'}</button>}
   </section>;
+}
+
+function RepositoryChat({ organizationId, repository }: { organizationId: string; repository: RegisteredRepository }) {
+  const [question, setQuestion] = useState(''); const [answer, setAnswer] = useState(''); const [citations, setCitations] = useState<RepositoryChatCitation[]>([]); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [isStreaming, setStreaming] = useState(false); const abortRef = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => abortRef.current?.abort(), []);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); const value = question.trim(); if (!value || isStreaming) return;
+    const controller = new AbortController(); abortRef.current = controller; setAnswer(''); setCitations([]); setError(''); setNotice(''); setStreaming(true);
+    try {
+      await streamApi<RepositoryChatEvent>(`/organizations/${organizationId}/repositories/${repository.id}/chat`, { question: value }, controller.signal, chatEvent => {
+        if (chatEvent.type === 'Citations') setCitations(chatEvent.citations);
+        else if (chatEvent.type === 'Delta') setAnswer(current => current + chatEvent.delta);
+        else if (chatEvent.type === 'Error') setError(chatEvent.delta);
+      });
+    } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Repository chat failed. Please retry.'); }
+    finally { if (abortRef.current === controller) { abortRef.current = undefined; setStreaming(false); } }
+  }
+  function cancel() { abortRef.current?.abort(); abortRef.current = undefined; setStreaming(false); setNotice('Response stopped. You can ask another question.'); }
+  return <div className="mt-8 min-w-0 max-w-full border-t border-slate-200 pt-6"><div className="flex items-center gap-2"><MessageSquareText className="text-brand-600" size={19}/><h3 className="font-semibold text-ink">Ask this repository</h3></div><p className="mt-1 text-sm text-slate-500">Receive a streamed answer grounded in the latest indexed commit.</p><form className="mt-4 flex gap-3" onSubmit={submit}><input className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-brand-500" maxLength={2000} required disabled={isStreaming} value={question} onChange={event => setQuestion(event.target.value)} placeholder="How does repository indexing recover after a restart?"/>{isStreaming ? <button key="stop" type="button" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-600" onClick={event => { event.preventDefault(); event.stopPropagation(); cancel(); }}><Square size={14}/> Stop</button> : <button key="ask" type="submit" className="rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white">Ask</button>}</form>{(answer || isStreaming) && <div aria-live="polite" className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{answer}{isStreaming && <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-brand-500" aria-label="Generating answer"/>}</p></div>}{notice && <p role="status" className="mt-3 text-sm font-medium text-slate-500">{notice}</p>}{error && <div className="error mt-4">{error}</div>}{citations.length > 0 && <div className="mt-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sources</p><ol className="mt-2 grid min-w-0 gap-2">{citations.map(citation => <li key={citation.number} className="min-w-0 text-sm"><a className="block break-all text-brand-600 hover:underline" href={citation.sourceUrl} target="_blank" rel="noreferrer">[{citation.number}] {citation.path}:{citation.startLine}-{citation.endLine}</a></li>)}</ol></div>}</div>;
 }
 
 function SemanticSearch({ organizationId, repository }: { organizationId: string; repository: RegisteredRepository }) {

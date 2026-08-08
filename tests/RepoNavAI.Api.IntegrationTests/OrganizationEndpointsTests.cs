@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -93,6 +94,30 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 
     [Fact]
+    public async Task RepositoryChat_WhenCurrentUserIsNotMember_ReturnsNotFoundBeforeStreamingStarts()
+    {
+        var response = await _client.PostAsJsonAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/chat", new { question = "How does authentication work?" });
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+    }
+
+    [Fact]
+    public async Task RepositoryChat_ForOrganizationMember_StreamsGroundedEventsAndCitations()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Chat Test {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var repositoryResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/chat" });
+        var repository = await repositoryResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+
+        var response = await _client.PostAsJsonAsync($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/chat", new { question = "How does authentication work?" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
+        var content = await response.Content.ReadAsStringAsync();
+        content.Should().Contain("event: citations").And.Contain("src/Auth.cs").And.Contain("event: delta").And.Contain("Authentication is enforced [1].").And.Contain("event: completed");
+    }
+
+    [Fact]
     public async Task ReindexRepository_WhenCurrentUserIsNotMember_ReturnsNotFound()
     {
         var response = await _client.PostAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/indexing/reindex", null);
@@ -144,12 +169,20 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IRepositoryRegistrationRepository>();
             services.RemoveAll<IRepositoryQueries>();
             services.RemoveAll<IRepositoryProvider>();
+            services.RemoveAll<IEmbeddingGenerator>();
+            services.RemoveAll<IVectorStore>();
+            services.RemoveAll<IRepositoryAnswerGenerator>();
+            services.RemoveAll<IRepositoryChatSessionStore>();
             services.AddSingleton<TestOrganizationStore>();
             services.AddSingleton<IOrganizationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IOrganizationQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryRegistrationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryProvider, TestRepositoryProvider>();
+            services.AddSingleton<IEmbeddingGenerator, TestEmbeddingGenerator>();
+            services.AddSingleton<IVectorStore, TestVectorStore>();
+            services.AddSingleton<IRepositoryAnswerGenerator, TestRepositoryAnswerGenerator>();
+            services.AddSingleton<IRepositoryChatSessionStore, TestRepositoryChatSessionStore>();
             services.AddAuthentication(options => { options.DefaultAuthenticateScheme = TestAuthenticationHandler.AuthenticationScheme; options.DefaultChallengeScheme = TestAuthenticationHandler.AuthenticationScheme; })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.AuthenticationScheme, _ => { });
         });
@@ -197,4 +230,31 @@ public sealed class TestRepositoryProvider : IRepositoryProvider
 {
     public Task<ProviderRepository?> GetAsync(GitHubRepositoryAddress address, CancellationToken cancellationToken) =>
         Task.FromResult<ProviderRepository?>(new ProviderRepository("123", address.Owner, address.Name, "main", RepositoryVisibility.Private, $"https://github.com/{address.Owner}/{address.Name}"));
+}
+
+public sealed class TestEmbeddingGenerator : IEmbeddingGenerator
+{
+    public string Model => "test-embedding"; public int Dimensions => 3; public bool IsConfigured => true;
+    public Task<IReadOnlyList<float[]>> GenerateAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<float[]>>(inputs.Select(_ => new[] { 1f, 0f, 0f }).ToArray());
+}
+
+public sealed class TestVectorStore : IVectorStore
+{
+    public Task UpsertAsync(Guid organizationId, Guid repositoryId, Guid snapshotId, IReadOnlyCollection<(Guid ChunkId, float[] Embedding)> embeddings, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task<IReadOnlyCollection<SemanticSearchResult>> SearchAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<SemanticSearchResult>>([new(Guid.NewGuid(), "src/Auth.cs", 10, 20, "auth source", 0.9, "abc123", "https://example.test/src")]);
+}
+
+public sealed class TestRepositoryAnswerGenerator : IRepositoryAnswerGenerator
+{
+    public bool IsConfigured => true; public string Model => "test-chat";
+    public async IAsyncEnumerable<string> StreamAsync(string question, IReadOnlyCollection<SemanticSearchResult> sources, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await Task.Yield(); cancellationToken.ThrowIfCancellationRequested(); yield return "Authentication is enforced [1].";
+    }
+}
+
+public sealed class TestRepositoryChatSessionStore : IRepositoryChatSessionStore
+{
+    public Task<Guid> StartAsync(Guid organizationId, Guid repositoryId, Guid userId, string model, CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
+    public Task FinishAsync(Guid sessionId, RepositoryChatStatus status, CancellationToken cancellationToken) => Task.CompletedTask;
 }

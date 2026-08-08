@@ -29,6 +29,10 @@ public sealed record ParsedEndpoint(string HttpMethod, string Route, string Hand
 public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols, string CommitSha, string SourceUrl);
 public sealed record TextChunk(int Ordinal, int StartLine, int EndLine, string Content);
 public sealed record SemanticSearchResult(Guid ChunkId, string Path, int StartLine, int EndLine, string Content, double Score, string CommitSha, string SourceUrl);
+public sealed record RepositoryChatCitation(int Number, string Path, int StartLine, int EndLine, string CommitSha, string SourceUrl, double Score);
+
+public enum RepositoryChatEventType { Citations, Delta, Completed, Error }
+public sealed record RepositoryChatEvent(RepositoryChatEventType Type, string? Delta = null, IReadOnlyCollection<RepositoryChatCitation>? Citations = null);
 
 public interface IRepositoryProvider
 {
@@ -70,4 +74,17 @@ public interface IVectorStore
 {
     Task UpsertAsync(Guid organizationId, Guid repositoryId, Guid snapshotId, IReadOnlyCollection<(Guid ChunkId, float[] Embedding)> embeddings, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<SemanticSearchResult>> SearchAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryAnswerGenerator
+{
+    bool IsConfigured { get; }
+    string Model { get; }
+    IAsyncEnumerable<string> StreamAsync(string question, IReadOnlyCollection<SemanticSearchResult> sources, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryChatSessionStore
+{
+    Task<Guid> StartAsync(Guid organizationId, Guid repositoryId, Guid userId, string model, CancellationToken cancellationToken);
+    Task FinishAsync(Guid sessionId, RepositoryChatStatus status, CancellationToken cancellationToken);
 }

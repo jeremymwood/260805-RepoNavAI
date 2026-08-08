@@ -18,3 +18,18 @@ public sealed class SemanticSearchValidatorTests
     [InlineData(26)]
     public void Validate_RejectsUnsafeLimits(int limit) => _validator.Validate(new SemanticSearchQuery(Guid.NewGuid(), Guid.NewGuid(), "authorization", limit)).IsValid.Should().BeFalse();
 }
+
+public sealed class StreamRepositoryChatValidatorTests
+{
+    private readonly StreamRepositoryChatValidator _validator = new();
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Validate_RejectsEmptyQuestions(string question) =>
+        _validator.Validate(new StreamRepositoryChatQuery(Guid.NewGuid(), Guid.NewGuid(), question)).IsValid.Should().BeFalse();
+
+    [Fact]
+    public void Validate_RejectsQuestionsOverTwoThousandCharacters() =>
+        _validator.Validate(new StreamRepositoryChatQuery(Guid.NewGuid(), Guid.NewGuid(), new string('x', 2001))).IsValid.Should().BeFalse();
+}
