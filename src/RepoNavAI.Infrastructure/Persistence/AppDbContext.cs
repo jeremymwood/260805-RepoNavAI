@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Infrastructure.Identity;
 using RepoNavAI.Domain.Repositories;
+using Pgvector;
+using Pgvector.EntityFrameworkCore;
 
 namespace RepoNavAI.Infrastructure.Persistence;
 
@@ -20,11 +22,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositoryDocument> RepositoryDocuments => Set<RepositoryDocument>();
     public DbSet<RepositorySymbol> RepositorySymbols => Set<RepositorySymbol>();
     public DbSet<RepositoryEndpoint> RepositoryEndpoints => Set<RepositoryEndpoint>();
+    public DbSet<RepositoryChunk> RepositoryChunks => Set<RepositoryChunk>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
         builder.HasDefaultSchema("reponav");
+        builder.HasPostgresExtension("vector");
 
         builder.Entity<ApplicationUser>(entity =>
         {
@@ -131,6 +135,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.ToTable("RepositoryEndpoints"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.HttpMethod).HasMaxLength(16).IsRequired(); entity.Property(x => x.Route).HasMaxLength(2048).IsRequired(); entity.Property(x => x.Handler).HasMaxLength(1024).IsRequired(); entity.Property(x => x.Path).HasMaxLength(1024).IsRequired(); entity.Property(x => x.DownstreamSymbols).HasColumnType("jsonb");
             entity.HasIndex(x => new { x.SnapshotId, x.HttpMethod, x.Route, x.Handler }).IsUnique(); entity.HasOne(x => x.Snapshot).WithMany(x => x.Endpoints).HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
+        });
+        builder.Entity<RepositoryChunk>(entity =>
+        {
+            entity.ToTable("RepositoryChunks"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.ContentHash).HasMaxLength(64).IsRequired(); entity.Property(x => x.EmbeddingModel).HasMaxLength(100).IsRequired(); entity.Property(x => x.Content).IsRequired();
+            entity.Property<Vector>("Embedding").HasColumnType("vector(512)");
+            entity.HasIndex(x => new { x.SnapshotId, x.DocumentId, x.Ordinal }).IsUnique();
+            entity.HasIndex("Embedding").HasMethod("hnsw").HasOperators("vector_cosine_ops").HasStorageParameter("m", 16).HasStorageParameter("ef_construction", 64);
+            entity.HasOne(x => x.Snapshot).WithMany(x => x.Chunks).HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Document).WithMany(x => x.Chunks).HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

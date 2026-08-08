@@ -27,6 +27,8 @@ public sealed record ParsedSymbol(string Name, string QualifiedName, SymbolKind 
 public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollection<RepositorySourceFile> Files);
 public sealed record ParsedEndpoint(string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols);
 public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols, string CommitSha, string SourceUrl);
+public sealed record TextChunk(int Ordinal, int StartLine, int EndLine, string Content);
+public sealed record SemanticSearchResult(Guid ChunkId, string Path, int StartLine, int EndLine, string Content, double Score, string CommitSha, string SourceUrl);
 
 public interface IRepositoryProvider
 {
@@ -45,11 +47,13 @@ public interface IRepositoryQueries
     Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken);
     Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken);
+    Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
 }
 
 public interface IIndexingRequestRepository
 {
     Task<RepositoryIndexingRequest?> GetLatestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
+    Task AddAsync(RepositoryIndexingRequest request, CancellationToken cancellationToken);
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
@@ -60,3 +64,10 @@ public interface IRepositorySnapshotProvider
 
 public interface ISourceSymbolParser { IReadOnlyCollection<ParsedSymbol> Parse(string path, byte[] content); }
 public interface IRepositoryEndpointAnalyzer { IReadOnlyCollection<ParsedEndpoint> Analyze(IReadOnlyCollection<RepositorySourceFile> files); }
+public interface ISourceChunker { IReadOnlyCollection<TextChunk> Chunk(string path, string content); }
+public interface IEmbeddingGenerator { string Model { get; } int Dimensions { get; } bool IsConfigured { get; } Task<IReadOnlyList<float[]>> GenerateAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken); }
+public interface IVectorStore
+{
+    Task UpsertAsync(Guid organizationId, Guid repositoryId, Guid snapshotId, IReadOnlyCollection<(Guid ChunkId, float[] Embedding)> embeddings, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<SemanticSearchResult>> SearchAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken);
+}

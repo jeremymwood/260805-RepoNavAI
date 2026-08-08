@@ -31,9 +31,16 @@ public sealed class RepositoriesController(ISender sender) : ControllerBase
     [HttpPost("{repositoryId:guid}/indexing/retry")]
     public async Task<IActionResult> Retry(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new RetryIndexingCommand(organizationId, repositoryId), cancellationToken); return NoContent(); }
 
+    [HttpPost("{repositoryId:guid}/indexing/reindex")]
+    public async Task<IActionResult> Reindex(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new ReindexRepositoryCommand(organizationId, repositoryId), cancellationToken); return Accepted(); }
+
     [HttpGet("{repositoryId:guid}/endpoints")]
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpoints(Guid organizationId, Guid repositoryId, [FromQuery] string? method, [FromQuery] string? search, [FromQuery] bool? requiresAuthorization, CancellationToken cancellationToken) =>
         sender.Send(new ListRepositoryEndpointsQuery(organizationId, repositoryId, method, search, requiresAuthorization), cancellationToken);
+
+    [HttpGet("{repositoryId:guid}/semantic-search")]
+    public Task<IReadOnlyCollection<SemanticSearchResult>> SemanticSearch(Guid organizationId, Guid repositoryId, [FromQuery] string query, [FromQuery] int limit = 10, CancellationToken cancellationToken = default) =>
+        sender.Send(new SemanticSearchQuery(organizationId, repositoryId, query, limit), cancellationToken);
 }
 
 public sealed record RegisterRepositoryRequest(string Url);

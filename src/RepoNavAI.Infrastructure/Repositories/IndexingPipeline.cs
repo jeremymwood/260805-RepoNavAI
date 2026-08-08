@@ -102,6 +102,7 @@ public sealed class CSharpSourceSymbolParser : ISourceSymbolParser
 
 public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvider, IOptions<IndexingOptions> options) : IIndexingRequestRepository
 {
+    public async Task AddAsync(RepositoryIndexingRequest request, CancellationToken cancellationToken) => await db.RepositoryIndexingRequests.AddAsync(request, cancellationToken);
     public Task<RepositoryIndexingRequest?> GetLatestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) =>
         db.RepositoryIndexingRequests
             .OrderByDescending(x => x.CreatedAtUtc)
@@ -115,20 +116,40 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
         if (job is null) { await transaction.CommitAsync(cancellationToken); return null; }
         await db.Entry(job).Reference(x => x.Repository).LoadAsync(cancellationToken); job.Start(now, TimeSpan.FromMinutes(options.Value.LeaseMinutes)); await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return job;
     }
-    public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, IRepositoryEndpointAnalyzer endpointAnalyzer, CancellationToken cancellationToken)
+    public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, IRepositoryEndpointAnalyzer endpointAnalyzer, ISourceChunker chunker, IEmbeddingGenerator embeddingGenerator, IVectorStore vectorStore, CancellationToken cancellationToken)
     {
-        if (await db.RepositorySnapshots.AnyAsync(x => x.RepositoryId == job.RepositoryId && x.CommitSha == data.CommitSha, cancellationToken)) return;
+        var existing = await db.RepositorySnapshots.Include(x => x.Chunks).SingleOrDefaultAsync(x => x.RepositoryId == job.RepositoryId && x.CommitSha == data.CommitSha, cancellationToken);
+        if (existing is not null) { await EmbedAsync(job, existing, embeddingGenerator, vectorStore, cancellationToken); return; }
         var snapshot = new RepositorySnapshot(job.OrganizationId, job.RepositoryId, data.CommitSha);
         foreach (var file in data.Files)
         {
             var text = Encoding.UTF8.GetString(file.Content); var hash = Convert.ToHexString(SHA256.HashData(file.Content));
             var document = new RepositoryDocument(job.OrganizationId, snapshot.Id, file.Path, file.Language, hash, file.Content.Length, text); snapshot.Documents.Add(document);
             foreach (var symbol in parser.Parse(file.Path, file.Content)) document.Symbols.Add(new RepositorySymbol(job.OrganizationId, document.Id, symbol.Name, symbol.QualifiedName, symbol.Kind, symbol.Line));
+            foreach (var chunk in chunker.Chunk(file.Path, text))
+            {
+                var chunkHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(chunk.Content)));
+                var entity = new RepositoryChunk(job.OrganizationId, snapshot.Id, document.Id, chunk.Ordinal, chunk.StartLine, chunk.EndLine, chunk.Content, chunkHash, embeddingGenerator.Model);
+                document.Chunks.Add(entity); snapshot.Chunks.Add(entity);
+            }
         }
         foreach (var endpoint in endpointAnalyzer.Analyze(data.Files))
             snapshot.Endpoints.Add(new RepositoryEndpoint(job.OrganizationId, snapshot.Id, endpoint.HttpMethod, endpoint.Route, endpoint.Handler, endpoint.Path, endpoint.Line, endpoint.RequiresAuthorization, System.Text.Json.JsonSerializer.Serialize(endpoint.DownstreamSymbols)));
         job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(options.Value.LeaseMinutes));
         await db.RepositorySnapshots.AddAsync(snapshot, cancellationToken); await db.SaveChangesAsync(cancellationToken);
+        await EmbedAsync(job, snapshot, embeddingGenerator, vectorStore, cancellationToken);
+    }
+
+    private static async Task EmbedAsync(RepositoryIndexingRequest job, RepositorySnapshot snapshot, IEmbeddingGenerator embeddingGenerator, IVectorStore vectorStore, CancellationToken cancellationToken)
+    {
+        if (embeddingGenerator.IsConfigured)
+        {
+            foreach (var batch in snapshot.Chunks.Chunk(64))
+            {
+                var vectors = await embeddingGenerator.GenerateAsync(batch.Select(x => x.Content).ToArray(), cancellationToken);
+                await vectorStore.UpsertAsync(job.OrganizationId, job.RepositoryId, snapshot.Id, batch.Zip(vectors, (chunk, vector) => (chunk.Id, vector)).ToArray(), cancellationToken);
+            }
+        }
     }
 }
 
@@ -149,13 +170,13 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
         try
         {
             if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
-            var provider = scope.ServiceProvider.GetRequiredService<IRepositorySnapshotProvider>(); var parser = scope.ServiceProvider.GetRequiredService<ISourceSymbolParser>(); var endpointAnalyzer = scope.ServiceProvider.GetRequiredService<IRepositoryEndpointAnalyzer>();
+            var provider = scope.ServiceProvider.GetRequiredService<IRepositorySnapshotProvider>(); var parser = scope.ServiceProvider.GetRequiredService<ISourceSymbolParser>(); var endpointAnalyzer = scope.ServiceProvider.GetRequiredService<IRepositoryEndpointAnalyzer>(); var chunker = scope.ServiceProvider.GetRequiredService<ISourceChunker>(); var embeddingGenerator = scope.ServiceProvider.GetRequiredService<IEmbeddingGenerator>(); var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
             var data = await provider.FetchAsync(job.Repository.Owner, job.Repository.Name, job.Repository.DefaultBranch, cancellationToken);
             await store.RefreshAsync(job, cancellationToken);
             if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
             job.Advance(IndexingCheckpoint.Parsing, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(options.Value.LeaseMinutes), data.CommitSha); await store.SaveChangesAsync(cancellationToken);
             if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
-            await store.PersistAsync(job, data, parser, endpointAnalyzer, cancellationToken); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken);
+            await store.PersistAsync(job, data, parser, endpointAnalyzer, chunker, embeddingGenerator, vectorStore, cancellationToken); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

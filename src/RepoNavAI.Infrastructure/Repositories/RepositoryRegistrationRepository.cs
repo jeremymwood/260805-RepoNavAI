@@ -30,6 +30,7 @@ public sealed class RepositoryRegistrationRepository(AppDbContext dbContext) : I
 
 public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueries
 {
+    public Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => dbContext.RegisteredRepositories.AnyAsync(x => x.OrganizationId == organizationId && x.Id == repositoryId, cancellationToken);
     public async Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) =>
         await dbContext.RegisteredRepositories.AsNoTracking()
             .Where(repository => repository.OrganizationId == organizationId)

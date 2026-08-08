@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-reponav}
@@ -22,6 +22,9 @@ services:
       Admin__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       Cors__AllowedOrigins__0: http://localhost:5173
       GitHub__AccessToken: ${GITHUB_ACCESS_TOKEN:-}
+      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      OpenAI__EmbeddingModel: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      OpenAI__EmbeddingDimensions: ${OPENAI_EMBEDDING_DIMENSIONS:-512}
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
