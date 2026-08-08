@@ -2,7 +2,9 @@
 
 RepoNav AI is an AI-powered engineering workspace for understanding unfamiliar codebases. It is designed to explain request paths, dependencies, architecture, change impact, and technical debt with answers grounded in repository content.
 
-The current foundation includes a Clean Architecture backend, PostgreSQL persistence, ASP.NET Identity, JWT authentication, structured logging, a polished React workspace shell, organization-scoped tenancy, verified GitHub repository registration, semantic search, and streamed source-grounded repository chat.
+The functional MVP includes organization-scoped authentication and membership, verified GitHub repository registration, durable restart-safe indexing, ASP.NET endpoint discovery, pgvector semantic search with commit-pinned citations, and streamed source-grounded repository chat. A PostgreSQL-backed lease and heartbeat model recovers interrupted indexing without allowing stale workers to overwrite reclaimed jobs.
+
+See the [product steering document](docs/product/steering.md) for the current capability matrix, limitations, product principles, active investment horizons, and risk register. GitHub Projects remains authoritative for work status; ADRs remain authoritative for durable architecture decisions.
 
 ## Architecture
 
@@ -38,6 +40,9 @@ tests/
   RepoNavAI.Application.Tests/
   RepoNavAI.Api.IntegrationTests/
 docs/architecture/           Architecture decision records
+docs/product/                Product direction and capability status
+docs/operations/             Deployment and recovery runbooks
+docs/testing/                Manual acceptance checks
 .github/workflows/           Continuous integration
 ```
 
@@ -81,6 +86,7 @@ Useful configuration keys:
 | `OpenAI__ChatModel`, `OpenAI__ChatMaxOutputTokens` | Repository-chat model and bounded output size; defaults to `gpt-4.1-mini` and 1200 tokens |
 | `OpenAI__ChatMaximumContextCharacters` | Maximum retrieved source characters supplied to one answer; defaults to 32,000 |
 | `RepositoryChat__OrganizationDailyRequestLimit` | Rolling 24-hour request cap per organization; defaults to 100 |
+| `Indexing__LeaseSeconds`, `Indexing__HeartbeatSeconds` | Worker ownership and recovery timing; defaults to 45 and 10 seconds |
 
 ## Docker Compose
 
@@ -93,6 +99,18 @@ docker compose up --build
 Open `http://localhost:5173`. PostgreSQL data persists in the `postgres-data` volume. The API waits for PostgreSQL health, applies migrations, and seeds the configured administrator. Compose deliberately has no insecure secret defaults.
 
 Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register or explicitly re-index a repository so its immutable snapshot receives embeddings. Repository chat retrieves from the latest indexed snapshot and streams a citation-grounded answer over authenticated server-sent events.
+
+## Current product capabilities
+
+- Organization creation, invitations, owner/administrator/member roles, and tenant-scoped authorization
+- Public and permitted private GitHub repository registration with durable indexing status, cancellation, retry, and re-indexing
+- Commit-pinned source snapshots, supported-file parsing, C# symbol extraction, and restart recovery within the indexing lease window
+- ASP.NET endpoint catalog with method, route, handler, authorization, downstream-symbol, and source filters
+- Semantic code search backed by OpenAI embeddings and PostgreSQL `pgvector`
+- Streamed repository explanations grounded in retrieved evidence with source citations, cancellation, and organization quotas
+- A static [public product preview](https://jeremymwood.github.io/260805-RepoNavAI/) that requires no account or secrets
+
+Known limitations and planned investments are maintained in [product steering](docs/product/steering.md), not duplicated here.
 
 ## API
 
@@ -111,6 +129,8 @@ dotnet test RepoNavAI.sln --configuration Release
 cd src/RepoNavAI.Web
 npm run lint
 npm run build
+cd ../..
+node scripts/validate-docs.mjs
 ```
 
 GitHub Actions runs these checks for pushes to `main` and pull requests.
@@ -119,12 +139,6 @@ Feature-level browser checks are maintained in the [manual acceptance runbook](d
 
 ## Roadmap
 
-1. Repository-provider credentials and webhook security
-2. Webhook-driven re-indexing and additional language analyzers
-3. Chunking, embeddings, vector-store abstraction, and semantic search
-4. Streaming repository chat with citations and RAG evaluation
-5. Architecture summaries and dependency graphs
-6. Documentation and technical-debt analysis
-7. Test/refactoring suggestions, health dashboards, and administration
+The living [Now / Next / Later direction](docs/product/steering.md#direction) links directly to scoped GitHub work items. Near-term product investment focuses on tailored codebase orientation, capability-aware repository exploration, safe repository removal, and prompted code-flow maps with citations. Platform work then separates indexing from API scaling and provisions the selected Azure staging/production path.
 
 Organization membership is the tenant boundary. All future project and repository operations must retain the tenant-scoped authorization model documented in ADR-002.
