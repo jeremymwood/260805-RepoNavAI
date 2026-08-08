@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics.Metrics;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,8 @@ public sealed class IndexingOptions
 {
     public const string SectionName = "Indexing";
     public int PollSeconds { get; init; } = 2;
-    public int LeaseMinutes { get; init; } = 5;
+    public int LeaseSeconds { get; init; } = 45;
+    public int HeartbeatSeconds { get; init; } = 10;
     public int MaxAttempts { get; init; } = 3;
     public int MaximumFiles { get; init; } = 5000;
     public int MaximumFileBytes { get; init; } = 1_048_576;
@@ -102,6 +104,7 @@ public sealed class CSharpSourceSymbolParser : ISourceSymbolParser
 
 public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvider, IOptions<IndexingOptions> options) : IIndexingRequestRepository
 {
+    public sealed record Claim(RepositoryIndexingRequest Job, double? RecoveryDelaySeconds);
     public async Task AddAsync(RepositoryIndexingRequest request, CancellationToken cancellationToken) => await db.RepositoryIndexingRequests.AddAsync(request, cancellationToken);
     public Task<RepositoryIndexingRequest?> GetLatestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) =>
         db.RepositoryIndexingRequests
@@ -109,12 +112,22 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
             .FirstOrDefaultAsync(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId, cancellationToken);
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
     public Task RefreshAsync(RepositoryIndexingRequest job, CancellationToken cancellationToken) => db.Entry(job).ReloadAsync(cancellationToken);
-    public async Task<RepositoryIndexingRequest?> ClaimAsync(CancellationToken cancellationToken)
+    public async Task<Claim?> ClaimAsync(Guid leaseOwnerId, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken); var now = timeProvider.GetUtcNow();
         var job = await db.RepositoryIndexingRequests.FromSqlInterpolated($"SELECT * FROM reponav.\"RepositoryIndexingRequests\" WHERE (\"Status\" = 'Pending' OR (\"Status\" = 'Processing' AND \"LeaseExpiresAtUtc\" < {now})) ORDER BY \"CreatedAtUtc\" FOR UPDATE SKIP LOCKED LIMIT 1").SingleOrDefaultAsync(cancellationToken);
         if (job is null) { await transaction.CommitAsync(cancellationToken); return null; }
-        await db.Entry(job).Reference(x => x.Repository).LoadAsync(cancellationToken); job.Start(now, TimeSpan.FromMinutes(options.Value.LeaseMinutes)); await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return job;
+        double? recoveryDelay = job.Status == IndexingRequestStatus.Processing && job.LeaseExpiresAtUtc is { } expiredAt ? Math.Max(0, (now - expiredAt).TotalSeconds) : null;
+        await db.Entry(job).Reference(x => x.Repository).LoadAsync(cancellationToken); job.Start(now, TimeSpan.FromSeconds(options.Value.LeaseSeconds), leaseOwnerId); await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return new Claim(job, recoveryDelay);
+    }
+    public async Task<bool> RenewLeaseAsync(Guid jobId, Guid leaseOwnerId, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var expires = now.AddSeconds(options.Value.LeaseSeconds);
+        var affected = await db.RepositoryIndexingRequests
+            .Where(x => x.Id == jobId && x.Status == IndexingRequestStatus.Processing && x.LeaseOwnerId == leaseOwnerId && x.LeaseExpiresAtUtc > now)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.LeaseExpiresAtUtc, expires), cancellationToken);
+        return affected == 1;
     }
     public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, IRepositoryEndpointAnalyzer endpointAnalyzer, ISourceChunker chunker, IEmbeddingGenerator embeddingGenerator, IVectorStore vectorStore, CancellationToken cancellationToken)
     {
@@ -135,7 +148,7 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
         }
         foreach (var endpoint in endpointAnalyzer.Analyze(data.Files))
             snapshot.Endpoints.Add(new RepositoryEndpoint(job.OrganizationId, snapshot.Id, endpoint.HttpMethod, endpoint.Route, endpoint.Handler, endpoint.Path, endpoint.Line, endpoint.RequiresAuthorization, System.Text.Json.JsonSerializer.Serialize(endpoint.DownstreamSymbols)));
-        job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(options.Value.LeaseMinutes));
+        job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromSeconds(options.Value.LeaseSeconds));
         await db.RepositorySnapshots.AddAsync(snapshot, cancellationToken); await db.SaveChangesAsync(cancellationToken);
         await EmbedAsync(job, snapshot, embeddingGenerator, vectorStore, cancellationToken);
     }
@@ -155,6 +168,10 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
 
 public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimeProvider timeProvider, IOptions<IndexingOptions> options, ILogger<RepositoryIndexingWorker> logger) : BackgroundService
 {
+    private static readonly Meter Meter = new("RepoNavAI.Indexing");
+    private static readonly Counter<long> RenewalFailures = Meter.CreateCounter<long>("reponav.indexing.lease.renewal_failures");
+    private static readonly Histogram<double> RecoveryLatency = Meter.CreateHistogram<double>("reponav.indexing.lease.recovery_latency", "s");
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -166,22 +183,57 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
     }
     private async Task<bool> ProcessOneAsync(CancellationToken cancellationToken)
     {
-        using var scope = scopes.CreateScope(); var store = scope.ServiceProvider.GetRequiredService<IndexingQueueStore>(); var job = await store.ClaimAsync(cancellationToken); if (job is null) return false;
+        using var scope = scopes.CreateScope(); var store = scope.ServiceProvider.GetRequiredService<IndexingQueueStore>(); var leaseOwnerId = Guid.NewGuid(); var claim = await store.ClaimAsync(leaseOwnerId, cancellationToken); if (claim is null) return false; var job = claim.Job;
+        if (claim.RecoveryDelaySeconds is { } recoverySeconds)
+        {
+            RecoveryLatency.Record(recoverySeconds);
+            logger.LogInformation("Reclaimed indexing job {JobId} on attempt {AttemptCount} after {RecoverySeconds:F1} seconds", job.Id, job.AttemptCount, recoverySeconds);
+        }
+        var leaseLost = false;
+        using var processing = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var heartbeat = RunHeartbeatAsync(job.Id, leaseOwnerId, processing, () => leaseLost = true, cancellationToken);
         try
         {
-            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
+            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); return true; }
             var provider = scope.ServiceProvider.GetRequiredService<IRepositorySnapshotProvider>(); var parser = scope.ServiceProvider.GetRequiredService<ISourceSymbolParser>(); var endpointAnalyzer = scope.ServiceProvider.GetRequiredService<IRepositoryEndpointAnalyzer>(); var chunker = scope.ServiceProvider.GetRequiredService<ISourceChunker>(); var embeddingGenerator = scope.ServiceProvider.GetRequiredService<IEmbeddingGenerator>(); var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
-            var data = await provider.FetchAsync(job.Repository.Owner, job.Repository.Name, job.Repository.DefaultBranch, cancellationToken);
-            await store.RefreshAsync(job, cancellationToken);
-            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
-            job.Advance(IndexingCheckpoint.Parsing, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(options.Value.LeaseMinutes), data.CommitSha); await store.SaveChangesAsync(cancellationToken);
-            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken); return true; }
-            await store.PersistAsync(job, data, parser, endpointAnalyzer, chunker, embeddingGenerator, vectorStore, cancellationToken); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(cancellationToken);
+            var data = await provider.FetchAsync(job.Repository.Owner, job.Repository.Name, job.Repository.DefaultBranch, processing.Token);
+            await store.RefreshAsync(job, processing.Token);
+            if (job.LeaseOwnerId != leaseOwnerId) throw new DbUpdateConcurrencyException("The indexing lease is no longer owned by this worker.");
+            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); return true; }
+            job.Advance(IndexingCheckpoint.Parsing, timeProvider.GetUtcNow(), TimeSpan.FromSeconds(options.Value.LeaseSeconds), data.CommitSha); await store.SaveChangesAsync(processing.Token);
+            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); return true; }
+            await store.PersistAsync(job, data, parser, endpointAnalyzer, chunker, embeddingGenerator, vectorStore, processing.Token); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token);
         }
+        catch (OperationCanceledException) when (leaseLost) { logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} lost its lease", job.Id, leaseOwnerId); }
+        catch (DbUpdateConcurrencyException) { leaseLost = true; logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} no longer owns the lease", job.Id, leaseOwnerId); }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogWarning("Indexing job {JobId} failed with {ErrorType}", job.Id, exception.GetType().Name); job.Fail("INDEXING_FAILED", "Repository indexing failed. Retry the job or check provider access and repository limits.", timeProvider.GetUtcNow(), options.Value.MaxAttempts); await store.SaveChangesAsync(cancellationToken);
         }
+        finally { await processing.CancelAsync(); await heartbeat; }
         return true;
+    }
+
+    private async Task RunHeartbeatAsync(Guid jobId, Guid leaseOwnerId, CancellationTokenSource processing, Action markLeaseLost, CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.Value.HeartbeatSeconds), timeProvider);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(processing.Token))
+            {
+                using var scope = scopes.CreateScope(); var store = scope.ServiceProvider.GetRequiredService<IndexingQueueStore>();
+                if (await store.RenewLeaseAsync(jobId, leaseOwnerId, stoppingToken)) continue;
+                RenewalFailures.Add(1); markLeaseLost();
+                logger.LogWarning("Lease renewal rejected for indexing job {JobId} and worker {LeaseOwnerId}", jobId, leaseOwnerId);
+                await processing.CancelAsync(); return;
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested || processing.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            RenewalFailures.Add(1); markLeaseLost();
+            logger.LogError(exception, "Lease renewal failed for indexing job {JobId} and worker {LeaseOwnerId}", jobId, leaseOwnerId);
+            await processing.CancelAsync();
+        }
     }
 }

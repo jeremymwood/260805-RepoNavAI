@@ -109,6 +109,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(x => x.CommitSha).HasMaxLength(64);
             entity.Property(x => x.ErrorCode).HasMaxLength(64);
             entity.Property(x => x.ErrorMessage).HasMaxLength(500);
+            entity.Property(x => x.LeaseOwnerId).IsConcurrencyToken();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
             entity.HasOne(x => x.Repository).WithMany(x => x.IndexingRequests).HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.Restrict);
