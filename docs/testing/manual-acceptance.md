@@ -17,6 +17,16 @@ Use these checks after the automated suite passes and the local Docker stack is 
 5. Use a nonsensical or unsupported query and confirm the interface returns no/weak evidence without failing.
 6. Confirm long paths and code remain inside the result card; code scrolls within its own preview.
 
+## Indexing lease recovery
+
+1. Register or retry a repository large enough to remain in **Acquiring**, **Parsing**, or **Persisting** for more than 60 seconds.
+2. Confirm the request remains **Processing** for more than 45 seconds without returning to **Pending**; this verifies active heartbeats keep extending ownership.
+3. While it is still processing, restart only the API with `docker compose restart api` and start a timer.
+4. Refresh the repository status periodically and confirm another worker reclaims the request and processing resumes within 60 seconds.
+5. Confirm the request reaches **Completed** with one snapshot for the displayed commit SHA and without a competing-worker or duplicate-write failure.
+6. Repeat with **Cancel** during processing and confirm cancellation remains responsive and the request is not reclaimed.
+7. Review sanitized API logs for a reclaimed-job entry and confirm no credential or source content appears.
+
 ## Streaming repository chat
 
 1. Ask `How does repository indexing process source files?`.

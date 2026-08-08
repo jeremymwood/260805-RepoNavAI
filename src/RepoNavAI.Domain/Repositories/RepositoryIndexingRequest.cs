@@ -22,6 +22,7 @@ public sealed class RepositoryIndexingRequest : Entity
     public DateTimeOffset? StartedAtUtc { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
     public DateTimeOffset? LeaseExpiresAtUtc { get; private set; }
+    public Guid? LeaseOwnerId { get; private set; }
     public DateTimeOffset? CancellationRequestedAtUtc { get; private set; }
     public string? CommitSha { get; private set; }
     public string? ErrorCode { get; private set; }
@@ -30,15 +31,26 @@ public sealed class RepositoryIndexingRequest : Entity
 
     public bool IsCancellationRequested => CancellationRequestedAtUtc is not null;
 
-    public void Start(DateTimeOffset now, TimeSpan lease)
+    public void Start(DateTimeOffset now, TimeSpan lease, Guid leaseOwnerId)
     {
+        if (leaseOwnerId == Guid.Empty) throw new ArgumentException("A lease owner is required.", nameof(leaseOwnerId));
+        if (Status == IndexingRequestStatus.Processing && LeaseExpiresAtUtc >= now) throw new InvalidOperationException("An active indexing lease cannot be claimed by another worker.");
         Status = IndexingRequestStatus.Processing;
         Checkpoint = IndexingCheckpoint.Acquiring;
         StartedAtUtc ??= now;
         LeaseExpiresAtUtc = now.Add(lease);
+        LeaseOwnerId = leaseOwnerId;
         AttemptCount++;
         ErrorCode = ErrorMessage = null;
         MarkUpdated();
+    }
+
+    public bool RenewLease(Guid leaseOwnerId, DateTimeOffset now, TimeSpan lease)
+    {
+        if (Status != IndexingRequestStatus.Processing || LeaseOwnerId != leaseOwnerId || LeaseExpiresAtUtc <= now) return false;
+        LeaseExpiresAtUtc = now.Add(lease);
+        MarkUpdated();
+        return true;
     }
 
     public void Advance(IndexingCheckpoint checkpoint, DateTimeOffset now, TimeSpan lease, string? commitSha = null)
@@ -53,7 +65,7 @@ public sealed class RepositoryIndexingRequest : Entity
     public void Complete(string commitSha, DateTimeOffset now)
     {
         Status = IndexingRequestStatus.Completed; Checkpoint = IndexingCheckpoint.Completed; CommitSha = commitSha;
-        CompletedAtUtc = now; LeaseExpiresAtUtc = null; MarkUpdated();
+        CompletedAtUtc = now; LeaseExpiresAtUtc = null; LeaseOwnerId = null; MarkUpdated();
     }
 
     public void RequestCancellation(DateTimeOffset now)
@@ -67,12 +79,12 @@ public sealed class RepositoryIndexingRequest : Entity
     public void Cancel(DateTimeOffset now)
     {
         Status = IndexingRequestStatus.Cancelled; Checkpoint = IndexingCheckpoint.Cancelled;
-        CompletedAtUtc = now; LeaseExpiresAtUtc = null; MarkUpdated();
+        CompletedAtUtc = now; LeaseExpiresAtUtc = null; LeaseOwnerId = null; MarkUpdated();
     }
 
     public void Fail(string code, string message, DateTimeOffset now, int maxAttempts)
     {
-        ErrorCode = code; ErrorMessage = message; LeaseExpiresAtUtc = null;
+        ErrorCode = code; ErrorMessage = message; LeaseExpiresAtUtc = null; LeaseOwnerId = null;
         Status = AttemptCount < maxAttempts ? IndexingRequestStatus.Pending : IndexingRequestStatus.Failed;
         Checkpoint = Status == IndexingRequestStatus.Pending ? IndexingCheckpoint.Queued : IndexingCheckpoint.Failed;
         if (Status == IndexingRequestStatus.Failed) CompletedAtUtc = now;
@@ -83,7 +95,7 @@ public sealed class RepositoryIndexingRequest : Entity
     {
         if (Status is not (IndexingRequestStatus.Failed or IndexingRequestStatus.Cancelled)) throw new InvalidOperationException("Only failed or cancelled requests can be retried.");
         Status = IndexingRequestStatus.Pending; Checkpoint = IndexingCheckpoint.Queued; CompletedAtUtc = null;
-        CancellationRequestedAtUtc = null; ErrorCode = ErrorMessage = null; AttemptCount = 0; StartedAtUtc = null; MarkUpdated();
+        CancellationRequestedAtUtc = null; ErrorCode = ErrorMessage = null; AttemptCount = 0; StartedAtUtc = null; LeaseOwnerId = null; MarkUpdated();
     }
 }
 

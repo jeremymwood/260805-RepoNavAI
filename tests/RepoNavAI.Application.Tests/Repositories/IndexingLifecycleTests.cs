@@ -10,7 +10,7 @@ public sealed class IndexingLifecycleTests
     public void ExpiredJobCanBeStartedAgainWithoutResettingOriginalStartTime()
     {
         var job = new RepositoryIndexingRequest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()); var first = DateTimeOffset.UtcNow;
-        job.Start(first, TimeSpan.FromMinutes(1)); job.Start(first.AddMinutes(2), TimeSpan.FromMinutes(1));
+        job.Start(first, TimeSpan.FromMinutes(1), Guid.NewGuid()); job.Start(first.AddMinutes(2), TimeSpan.FromMinutes(1), Guid.NewGuid());
         job.AttemptCount.Should().Be(2); job.StartedAtUtc.Should().Be(first); job.Status.Should().Be(IndexingRequestStatus.Processing);
     }
 
@@ -18,8 +18,44 @@ public sealed class IndexingLifecycleTests
     public void FailureRetriesUntilMaximumAttemptsThenBecomesActionableFailure()
     {
         var job = new RepositoryIndexingRequest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()); var now = DateTimeOffset.UtcNow;
-        for (var attempt = 1; attempt <= 3; attempt++) { job.Start(now, TimeSpan.FromMinutes(1)); job.Fail("INDEXING_FAILED", "Safe message", now, 3); }
+        for (var attempt = 1; attempt <= 3; attempt++) { job.Start(now, TimeSpan.FromMinutes(1), Guid.NewGuid()); job.Fail("INDEXING_FAILED", "Safe message", now, 3); }
         job.Status.Should().Be(IndexingRequestStatus.Failed); job.ErrorMessage.Should().Be("Safe message"); job.AttemptCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void LeaseRenewal_RequiresCurrentOwnerAndUnexpiredProcessingLease()
+    {
+        var now = DateTimeOffset.UtcNow; var owner = Guid.NewGuid();
+        var job = new RepositoryIndexingRequest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        job.Start(now, TimeSpan.FromSeconds(45), owner);
+
+        job.RenewLease(Guid.NewGuid(), now.AddSeconds(10), TimeSpan.FromSeconds(45)).Should().BeFalse();
+        job.RenewLease(owner, now.AddSeconds(10), TimeSpan.FromSeconds(45)).Should().BeTrue();
+        job.LeaseExpiresAtUtc.Should().Be(now.AddSeconds(55));
+        job.RenewLease(owner, now.AddMinutes(1), TimeSpan.FromSeconds(45)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void CompetingWorker_CannotClaimUntilExistingLeaseExpires()
+    {
+        var now = DateTimeOffset.UtcNow; var job = new RepositoryIndexingRequest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        job.Start(now, TimeSpan.FromSeconds(45), Guid.NewGuid());
+
+        var competingClaim = () => job.Start(now.AddSeconds(44), TimeSpan.FromSeconds(45), Guid.NewGuid());
+        competingClaim.Should().Throw<InvalidOperationException>();
+
+        job.Start(now.AddSeconds(46), TimeSpan.FromSeconds(45), Guid.NewGuid());
+        job.AttemptCount.Should().Be(2);
+    }
+
+    [Fact]
+    public void CompletingJob_ReleasesLeaseOwnership()
+    {
+        var now = DateTimeOffset.UtcNow; var job = new RepositoryIndexingRequest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        job.Start(now, TimeSpan.FromSeconds(45), Guid.NewGuid());
+        job.Complete("abcdef12", now.AddSeconds(1));
+        job.LeaseOwnerId.Should().BeNull();
+        job.LeaseExpiresAtUtc.Should().BeNull();
     }
 
     [Fact]
