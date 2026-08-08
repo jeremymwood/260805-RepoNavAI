@@ -17,7 +17,9 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md), [ADR-006](docs/architecture/ADR-006-semantic-search.md), and [ADR-007](docs/architecture/ADR-007-streaming-repository-chat.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md), [ADR-006](docs/architecture/ADR-006-semantic-search.md), [ADR-007](docs/architecture/ADR-007-streaming-repository-chat.md), and [ADR-008](docs/architecture/ADR-008-production-hosting.md).
+
+The selected production target is Azure Container Apps with Azure Database for PostgreSQL Flexible Server. The [production deployment strategy](docs/operations/production-deployment.md) defines environment promotion, GitHub protection, migrations, monitoring, rollback, and disaster recovery. Azure provisioning and runtime deployment remain explicit follow-up work; local development continues to use Docker Compose.
 
 ## Repository structure
 
