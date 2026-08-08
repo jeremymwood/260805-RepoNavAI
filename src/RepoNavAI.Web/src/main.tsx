@@ -6,5 +6,9 @@ import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
 import './styles.css';
 import { OrganizationProvider } from './organizations/OrganizationContext';
+import { DemoPage } from './demo/DemoPage';
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } });
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><QueryClientProvider client={queryClient}><BrowserRouter><AuthProvider><OrganizationProvider><App /></OrganizationProvider></AuthProvider></BrowserRouter></QueryClientProvider></React.StrictMode>);
+const content = import.meta.env.VITE_PUBLIC_DEMO === 'true'
+  ? <DemoPage/>
+  : <QueryClientProvider client={queryClient}><BrowserRouter><AuthProvider><OrganizationProvider><App /></OrganizationProvider></AuthProvider></BrowserRouter></QueryClientProvider>;
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode>{content}</React.StrictMode>);
