@@ -21,6 +21,10 @@ Dependencies point inward. The Domain has no framework dependencies; Application
 
 The selected production target is Azure Container Apps with Azure Database for PostgreSQL Flexible Server. The [production deployment strategy](docs/operations/production-deployment.md) defines environment promotion, GitHub protection, migrations, monitoring, rollback, and disaster recovery. Azure provisioning and runtime deployment remain explicit follow-up work; local development continues to use Docker Compose.
 
+## Public product preview
+
+The [GitHub Pages preview](https://jeremymwood.github.io/260805-RepoNavAI/) is a read-only walkthrough built from clearly labeled fixture data. It demonstrates the product surface without authentication, repository ingestion, PostgreSQL, OpenAI calls, secrets, or production data. Use the local Docker environment for the functional application; GitHub Pages is not the production hosting target.
+
 ## Repository structure
 
 ```text
