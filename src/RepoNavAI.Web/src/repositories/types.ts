@@ -22,3 +22,8 @@ export interface RepositoryEndpoint {
   id: string; httpMethod: string; route: string; handler: string; path: string; line: number;
   requiresAuthorization: boolean; downstreamSymbols: string[]; commitSha: string; sourceUrl: string;
 }
+
+export interface SemanticSearchResult {
+  chunkId: string; path: string; startLine: number; endLine: number; content: string;
+  score: number; commitSha: string; sourceUrl: string;
+}

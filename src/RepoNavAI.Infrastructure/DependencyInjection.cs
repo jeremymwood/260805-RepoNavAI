@@ -13,6 +13,7 @@ using RepoNavAI.Infrastructure.Persistence;
 using RepoNavAI.Infrastructure.Organizations;
 using RepoNavAI.Application.Repositories;
 using RepoNavAI.Infrastructure.Repositories;
+using Pgvector.EntityFrameworkCore;
 
 namespace RepoNavAI.Infrastructure;
 
@@ -23,7 +24,7 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("DefaultConnection is required.");
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(
             connectionString,
-            postgres => postgres.MigrationsHistoryTable("__EFMigrationsHistory", "reponav")));
+            postgres => { postgres.MigrationsHistoryTable("__EFMigrationsHistory", "reponav"); postgres.UseVector(); }));
         services.AddIdentityCore<ApplicationUser>(options =>
         {
             options.User.RequireUniqueEmail = true;
@@ -68,6 +69,10 @@ public static class DependencyInjection
         services.AddScoped<IIndexingRequestRepository>(provider => provider.GetRequiredService<IndexingQueueStore>());
         services.AddSingleton<ISourceSymbolParser, CSharpSourceSymbolParser>();
         services.AddSingleton<IRepositoryEndpointAnalyzer, AspNetEndpointAnalyzer>();
+        services.AddSingleton<ISourceChunker, SourceChunker>();
+        services.AddOptions<OpenAIOptions>().Bind(configuration.GetSection(OpenAIOptions.SectionName)).Validate(x => x.EmbeddingDimensions == 512, "OpenAI embedding dimensions must match the configured pgvector(512) schema.").Validate(x => !string.IsNullOrWhiteSpace(x.EmbeddingModel), "An embedding model is required.").ValidateOnStart();
+        services.AddHttpClient<IEmbeddingGenerator, OpenAIEmbeddingGenerator>(client => { client.BaseAddress = new Uri("https://api.openai.com/v1/"); client.Timeout = TimeSpan.FromMinutes(2); });
+        services.AddScoped<IVectorStore, PgVectorStore>();
         services.AddHttpClient<IRepositorySnapshotProvider, GitHubSnapshotProvider>(client =>
         {
             client.BaseAddress = new Uri("https://api.github.com/"); client.DefaultRequestHeaders.UserAgent.ParseAdd("RepoNavAI/1.0"); client.Timeout = TimeSpan.FromMinutes(2);

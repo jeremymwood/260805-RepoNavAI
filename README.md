@@ -17,7 +17,7 @@ flowchart LR
     Infra --> Identity[ASP.NET Identity]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), and [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md), and [ADR-006](docs/architecture/ADR-006-semantic-search.md).
 
 ## Repository structure
 
@@ -70,6 +70,8 @@ Useful configuration keys:
 | `Admin__Email`, `Admin__Password` | Idempotent administrator seed |
 | `Cors__AllowedOrigins__0` | Trusted frontend origin |
 | `GitHub__AccessToken` | Optional locally for public repositories; required for permitted private repositories |
+| `OpenAI__ApiKey` | Required to generate and query semantic-search embeddings; never committed |
+| `OpenAI__EmbeddingModel`, `OpenAI__EmbeddingDimensions` | Embedding configuration; defaults to `text-embedding-3-small` and the schema-fixed 512 dimensions |
 
 ## Docker Compose
 
@@ -80,6 +82,8 @@ docker compose up --build
 ```
 
 Open `http://localhost:5173`. PostgreSQL data persists in the `postgres-data` volume. The API waits for PostgreSQL health, applies migrations, and seeds the configured administrator. Compose deliberately has no insecure secret defaults.
+
+Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register a new repository so its immutable snapshot receives embeddings; snapshots indexed before embeddings were configured are not modified retroactively.
 
 ## API
 

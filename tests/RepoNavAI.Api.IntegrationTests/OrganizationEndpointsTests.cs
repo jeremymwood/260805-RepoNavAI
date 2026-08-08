@@ -86,6 +86,20 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 
     [Fact]
+    public async Task SemanticSearch_WhenCurrentUserIsNotMember_ReturnsNotFound()
+    {
+        var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/semantic-search?query=authentication");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ReindexRepository_WhenCurrentUserIsNotMember_ReturnsNotFound()
+    {
+        var response = await _client.PostAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/indexing/reindex", null);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task ListRepositoryEndpoints_ForOrganizationMember_AcceptsFilters()
     {
         var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Endpoint Test {Guid.NewGuid():N}" });
@@ -172,6 +186,7 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task<OrganizationDetails?> GetForUserAsync(Guid organizationId, Guid userId, CancellationToken cancellationToken) => Task.FromResult<OrganizationDetails?>(null);
     public Task<IReadOnlyCollection<PendingInvitationDto>> ListPendingInvitationsAsync(Guid organizationId, DateTimeOffset now, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<PendingInvitationDto>>([]);
     public Task<bool> ExistsAsync(Guid organizationId, string owner, string name, CancellationToken cancellationToken) => Task.FromResult(_repositories.Any(x => x.Repository.OrganizationId == organizationId && x.Repository.Owner == owner && x.Repository.Name == name));
+    public Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Any(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId));
     public Task AddAsync(RegisteredRepository repository, RepositoryIndexingRequest indexingRequest, CancellationToken cancellationToken) { _repositories.Add((repository, indexingRequest)); return Task.CompletedTask; }
     public Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryDto>>(_repositories.Where(x => x.Repository.OrganizationId == organizationId).Select(x => new RepositoryDto(x.Repository.Id, x.Repository.OrganizationId, x.Repository.Owner, x.Repository.Name, x.Repository.FullName, x.Repository.DefaultBranch, x.Repository.Visibility, x.Repository.WebUrl, x.Request.Status, x.Repository.CreatedAtUtc)).ToArray());
     public Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Where(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId).Select(x => new IndexingRequestDto(x.Request.Id, x.Request.RepositoryId, x.Request.Status, x.Request.Checkpoint, x.Request.AttemptCount, x.Request.CommitSha, x.Request.ErrorCode, x.Request.ErrorMessage, x.Request.CreatedAtUtc, x.Request.CompletedAtUtc)).FirstOrDefault());

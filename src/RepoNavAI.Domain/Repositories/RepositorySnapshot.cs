@@ -16,6 +16,25 @@ public sealed class RepositorySnapshot : Entity
     public RegisteredRepository Repository { get; private set; } = null!;
     public ICollection<RepositoryDocument> Documents { get; private set; } = new List<RepositoryDocument>();
     public ICollection<RepositoryEndpoint> Endpoints { get; private set; } = new List<RepositoryEndpoint>();
+    public ICollection<RepositoryChunk> Chunks { get; private set; } = new List<RepositoryChunk>();
+}
+
+public sealed class RepositoryChunk : Entity
+{
+    private RepositoryChunk() { }
+    public RepositoryChunk(Guid organizationId, Guid snapshotId, Guid documentId, int ordinal, int startLine, int endLine, string content, string contentHash, string embeddingModel) : base(Guid.NewGuid())
+    { OrganizationId = organizationId; SnapshotId = snapshotId; DocumentId = documentId; Ordinal = ordinal; StartLine = startLine; EndLine = endLine; Content = content; ContentHash = contentHash; EmbeddingModel = embeddingModel; }
+    public Guid OrganizationId { get; private set; }
+    public Guid SnapshotId { get; private set; }
+    public Guid DocumentId { get; private set; }
+    public int Ordinal { get; private set; }
+    public int StartLine { get; private set; }
+    public int EndLine { get; private set; }
+    public string Content { get; private set; } = string.Empty;
+    public string ContentHash { get; private set; } = string.Empty;
+    public string EmbeddingModel { get; private set; } = string.Empty;
+    public RepositorySnapshot Snapshot { get; private set; } = null!;
+    public RepositoryDocument Document { get; private set; } = null!;
 }
 
 public sealed class RepositoryEndpoint : Entity
@@ -49,6 +68,7 @@ public sealed class RepositoryDocument : Entity
     public string Content { get; private set; } = string.Empty;
     public RepositorySnapshot Snapshot { get; private set; } = null!;
     public ICollection<RepositorySymbol> Symbols { get; private set; } = new List<RepositorySymbol>();
+    public ICollection<RepositoryChunk> Chunks { get; private set; } = new List<RepositoryChunk>();
 }
 
 public sealed class RepositorySymbol : Entity

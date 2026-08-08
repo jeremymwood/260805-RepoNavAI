@@ -12,7 +12,7 @@ public sealed class PersistenceTrackingTests
     public void AddingMemberToTrackedOrganization_TracksMemberAsAdded()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql("Host=localhost;Database=tracking-test")
+            .UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector())
             .Options;
         using var dbContext = new AppDbContext(options);
         var organization = new Organization("Acme", "acme");
@@ -28,7 +28,7 @@ public sealed class PersistenceTrackingTests
     [Fact]
     public void IndexingModel_EnforcesOneSnapshotPerRepositoryCommit()
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test").Options;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
         using var dbContext = new AppDbContext(options);
         var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositorySnapshot));
         entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "RepositoryId", "CommitSha" }));
@@ -37,9 +37,19 @@ public sealed class PersistenceTrackingTests
     [Fact]
     public void EndpointModel_EnforcesOneRouteHandlerPerSnapshot()
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test").Options;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
         using var dbContext = new AppDbContext(options);
         var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryEndpoint));
         entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "SnapshotId", "HttpMethod", "Route", "Handler" }));
+    }
+
+    [Fact]
+    public void SemanticModel_UsesPgvectorAndIdempotentChunkIdentity()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
+        using var dbContext = new AppDbContext(options);
+        var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryChunk));
+        entity!.FindProperty("Embedding")!.GetColumnType().Should().Be("vector(512)");
+        entity.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "SnapshotId", "DocumentId", "Ordinal" }));
     }
 }
