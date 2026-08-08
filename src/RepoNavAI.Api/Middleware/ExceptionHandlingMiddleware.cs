@@ -19,6 +19,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
                 ForbiddenException => (StatusCodes.Status403Forbidden, exception.Message, null),
                 NotFoundException => (StatusCodes.Status404NotFound, exception.Message, null),
                 ExternalServiceException => (StatusCodes.Status502BadGateway, exception.Message, null),
+                RateLimitException => (StatusCodes.Status429TooManyRequests, exception.Message, null),
                 InvalidOperationException => (StatusCodes.Status409Conflict, exception.Message, null),
                 _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.", null)
             };

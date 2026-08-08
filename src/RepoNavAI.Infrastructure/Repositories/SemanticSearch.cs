@@ -19,6 +19,9 @@ public sealed class OpenAIOptions
     public string ApiKey { get; init; } = string.Empty;
     public string EmbeddingModel { get; init; } = "text-embedding-3-small";
     public int EmbeddingDimensions { get; init; } = 512;
+    public string ChatModel { get; init; } = "gpt-4.1-mini";
+    public int ChatMaxOutputTokens { get; init; } = 1200;
+    public int ChatMaximumContextCharacters { get; init; } = 32_000;
 }
 
 public sealed class SourceChunker : ISourceChunker

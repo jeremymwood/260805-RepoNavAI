@@ -52,4 +52,15 @@ public sealed class PersistenceTrackingTests
         entity!.FindProperty("Embedding")!.GetColumnType().Should().Be("vector(512)");
         entity.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "SnapshotId", "DocumentId", "Ordinal" }));
     }
+
+    [Fact]
+    public void RepositoryChatModel_IndexesOrganizationUsageWindowWithoutPersistingPromptsOrAnswers()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
+        using var dbContext = new AppDbContext(options);
+        var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryChatSession));
+        entity!.GetIndexes().Should().Contain(index => index.Properties.Select(property => property.Name).SequenceEqual(new[] { "OrganizationId", "CreatedAtUtc" }));
+        entity.FindProperty("Question").Should().BeNull();
+        entity.FindProperty("Answer").Should().BeNull();
+    }
 }

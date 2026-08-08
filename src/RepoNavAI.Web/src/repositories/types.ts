@@ -27,3 +27,12 @@ export interface SemanticSearchResult {
   chunkId: string; path: string; startLine: number; endLine: number; content: string;
   score: number; commitSha: string; sourceUrl: string;
 }
+
+export interface RepositoryChatCitation {
+  number: number; path: string; startLine: number; endLine: number; commitSha: string; sourceUrl: string; score: number;
+}
+
+export type RepositoryChatEvent =
+  | { type: 'Citations'; citations: RepositoryChatCitation[]; delta?: never }
+  | { type: 'Delta' | 'Error'; delta: string; citations?: never }
+  | { type: 'Completed'; delta?: never; citations?: never };

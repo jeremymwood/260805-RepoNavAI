@@ -1,5 +1,6 @@
 using FluentValidation;
 using MediatR;
+using System.Runtime.CompilerServices;
 using RepoNavAI.Application.Common.Exceptions;
 using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application.Organizations;
@@ -16,6 +17,7 @@ public sealed record RetryIndexingCommand(Guid OrganizationId, Guid RepositoryId
 public sealed record ReindexRepositoryCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
 public sealed record ListRepositoryEndpointsQuery(Guid OrganizationId, Guid RepositoryId, string? Method, string? Search, bool? RequiresAuthorization) : IRequest<IReadOnlyCollection<RepositoryEndpointDto>>;
 public sealed record SemanticSearchQuery(Guid OrganizationId, Guid RepositoryId, string Query, int Limit = 10) : IRequest<IReadOnlyCollection<SemanticSearchResult>>;
+public sealed record StreamRepositoryChatQuery(Guid OrganizationId, Guid RepositoryId, string Question) : IStreamRequest<RepositoryChatEvent>;
 
 public sealed class RegisterRepositoryValidator : AbstractValidator<RegisterRepositoryCommand>
 {
@@ -30,6 +32,16 @@ public sealed class RegisterRepositoryValidator : AbstractValidator<RegisterRepo
 public sealed class SemanticSearchValidator : AbstractValidator<SemanticSearchQuery>
 {
     public SemanticSearchValidator() { RuleFor(x => x.Query).NotEmpty().MaximumLength(2000); RuleFor(x => x.Limit).InclusiveBetween(1, 25); }
+}
+
+public sealed class StreamRepositoryChatValidator : AbstractValidator<StreamRepositoryChatQuery>
+{
+    public StreamRepositoryChatValidator()
+    {
+        RuleFor(x => x.OrganizationId).NotEmpty();
+        RuleFor(x => x.RepositoryId).NotEmpty();
+        RuleFor(x => x.Question).NotEmpty().MaximumLength(2000);
+    }
 }
 
 public sealed class RegisterRepositoryHandler(IOrganizationAccess access, IRepositoryProvider provider, IRepositoryRegistrationRepository repository, ICurrentUser currentUser)
@@ -121,5 +133,50 @@ public sealed class SemanticSearchHandler(IOrganizationAccess access, IRepositor
         if (!await repositories.ExistsAsync(request.OrganizationId, request.RepositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
         var query = (await embeddings.GenerateAsync([request.Query.Trim()], cancellationToken))[0];
         return await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, query, request.Limit, cancellationToken);
+    }
+}
+
+public sealed class StreamRepositoryChatHandler(
+    IOrganizationAccess access,
+    IRepositoryQueries repositories,
+    IEmbeddingGenerator embeddings,
+    IVectorStore vectors,
+    IRepositoryAnswerGenerator answers,
+    IRepositoryChatSessionStore sessions,
+    ICurrentUser currentUser) : IStreamRequestHandler<StreamRepositoryChatQuery, RepositoryChatEvent>
+{
+    public async IAsyncEnumerable<RepositoryChatEvent> Handle(StreamRepositoryChatQuery request, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var validation = await new StreamRepositoryChatValidator().ValidateAsync(request, cancellationToken);
+        if (!validation.IsValid) throw new ValidationException(validation.Errors);
+
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        if (!await repositories.ExistsAsync(request.OrganizationId, request.RepositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
+        if (!answers.IsConfigured) throw new ExternalServiceException("Repository chat is not configured.");
+
+        var question = request.Question.Trim();
+        var sessionId = await sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, answers.Model, cancellationToken);
+        var completed = false;
+        try
+        {
+            var embedding = (await embeddings.GenerateAsync([question], cancellationToken))[0];
+            var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 8, cancellationToken);
+            var citations = sources.Select((source, index) => new RepositoryChatCitation(index + 1, source.Path, source.StartLine, source.EndLine, source.CommitSha, source.SourceUrl, source.Score)).ToArray();
+            yield return new RepositoryChatEvent(RepositoryChatEventType.Citations, Citations: citations);
+
+            if (sources.Count == 0)
+                yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, "I could not find enough indexed repository evidence to answer that question.");
+            else
+                await foreach (var delta in answers.StreamAsync(question, sources, cancellationToken).WithCancellation(cancellationToken))
+                    if (!string.IsNullOrEmpty(delta)) yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, delta);
+
+            yield return new RepositoryChatEvent(RepositoryChatEventType.Completed);
+            completed = true;
+        }
+        finally
+        {
+            var status = completed ? RepositoryChatStatus.Completed : cancellationToken.IsCancellationRequested ? RepositoryChatStatus.Cancelled : RepositoryChatStatus.Failed;
+            await sessions.FinishAsync(sessionId, status, CancellationToken.None);
+        }
     }
 }
