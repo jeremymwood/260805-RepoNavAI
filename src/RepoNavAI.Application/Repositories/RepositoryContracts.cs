@@ -30,6 +30,13 @@ public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Ro
 public sealed record TextChunk(int Ordinal, int StartLine, int EndLine, string Content);
 public sealed record SemanticSearchResult(Guid ChunkId, string Path, int StartLine, int EndLine, string Content, double Score, string CommitSha, string SourceUrl);
 public sealed record RepositoryChatCitation(int Number, string Path, int StartLine, int EndLine, string CommitSha, string SourceUrl, double Score);
+public sealed record OrientationProfile(OrientationRole Role, OrientationExperience Experience, OrientationFocus Focus, int TimeBudgetMinutes, string? Objective);
+public sealed record OrientationDraftStep(string Key, string Title, string Objective, string Evidence, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<int> CitationNumbers);
+public sealed record OrientationDraft(string Summary, IReadOnlyCollection<OrientationDraftStep> Steps, IReadOnlyCollection<string> MissingEvidence);
+public sealed record OrientationCitation(string Path, int StartLine, int EndLine, string CommitSha, string SourceUrl);
+public sealed record OrientationStep(string Key, string Title, string Objective, string Evidence, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<OrientationCitation> Citations, bool Completed);
+public sealed record OrientationPlanDto(Guid Id, Guid RepositoryId, string CommitSha, OrientationRole Role, OrientationExperience Experience, OrientationFocus Focus, int TimeBudgetMinutes, string Summary, IReadOnlyCollection<OrientationStep> Steps, IReadOnlyCollection<string> MissingEvidence, bool IsStale, DateTimeOffset CreatedAtUtc);
+public sealed record RepositorySnapshotReference(Guid Id, string CommitSha);
 
 public enum RepositoryChatEventType { Citations, Delta, Completed, Error }
 public sealed record RepositoryChatEvent(RepositoryChatEventType Type, string? Delta = null, IReadOnlyCollection<RepositoryChatCitation>? Citations = null);
@@ -81,6 +88,22 @@ public interface IRepositoryAnswerGenerator
     bool IsConfigured { get; }
     string Model { get; }
     IAsyncEnumerable<string> StreamAsync(string question, IReadOnlyCollection<SemanticSearchResult> sources, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryOrientationGenerator
+{
+    bool IsConfigured { get; }
+    string Model { get; }
+    Task<OrientationDraft> GenerateAsync(OrientationProfile profile, IReadOnlyCollection<SemanticSearchResult> sources, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryOrientationStore
+{
+    Task<RepositorySnapshotReference?> GetLatestSnapshotAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
+    Task<RepositoryOrientationPlan?> GetLatestAsync(Guid organizationId, Guid repositoryId, Guid userId, CancellationToken cancellationToken);
+    Task<RepositoryOrientationPlan?> GetAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid planId, CancellationToken cancellationToken);
+    Task AddAsync(RepositoryOrientationPlan plan, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
 public interface IRepositoryChatSessionStore

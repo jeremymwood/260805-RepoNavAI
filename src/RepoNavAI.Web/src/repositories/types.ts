@@ -36,3 +36,14 @@ export type RepositoryChatEvent =
   | { type: 'Citations'; citations: RepositoryChatCitation[]; delta?: never }
   | { type: 'Delta' | 'Error'; delta: string; citations?: never }
   | { type: 'Completed'; delta?: never; citations?: never };
+
+export type OrientationRole = 'Developer' | 'Tester' | 'Architect' | 'DevOps' | 'Product';
+export type OrientationExperience = 'NewToSoftware' | 'Junior' | 'MidLevel' | 'Senior';
+export type OrientationFocus = 'GeneralOnboarding' | 'ImplementFeature' | 'FixBug' | 'Architecture' | 'Operations';
+export interface OrientationCitation { path: string; startLine: number; endLine: number; commitSha: string; sourceUrl: string }
+export interface OrientationStep { key: string; title: string; objective: string; evidence: string; evidenceLevel: 'Confirmed' | 'Inferred' | 'Missing'; citations: OrientationCitation[]; completed: boolean }
+export interface OrientationPlan {
+  id: string; repositoryId: string; commitSha: string; role: OrientationRole; experience: OrientationExperience;
+  focus: OrientationFocus; timeBudgetMinutes: number; summary: string; steps: OrientationStep[];
+  missingEvidence: string[]; isStale: boolean; createdAtUtc: string;
+}
