@@ -25,6 +25,29 @@ main > *,
 #repositories article a span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #repository-analysis-heading { overflow-wrap: anywhere; }
 
+#workspace-greeting { padding: 1.25rem 1.5rem; }
+#workspace-greeting > div { max-width: none; padding-right: 14rem; }
+#workspace-greeting > div > div:first-child { margin-bottom: .5rem; }
+#workspace-greeting h1 { font-size: 1.5rem; line-height: 2rem; }
+#workspace-greeting p { margin-top: .25rem; }
+#workspace-greeting > div > a {
+  position: absolute;
+  right: 1.5rem;
+  top: 50%;
+  margin-top: 0;
+  transform: translateY(-50%);
+}
+
+@media (max-width: 639px) {
+  #workspace-greeting { padding: 1.25rem; }
+  #workspace-greeting > div { padding-right: 0; }
+  #workspace-greeting > div > a {
+    position: static;
+    margin-top: .875rem;
+    transform: none;
+  }
+}
+
 @media (min-width: 1024px) {
   #repositories > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #repositories article > div:first-child { flex-wrap: nowrap; }
