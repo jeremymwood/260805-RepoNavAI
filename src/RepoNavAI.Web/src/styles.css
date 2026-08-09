@@ -11,3 +11,21 @@
 #repositories table th:first-child { width: 5rem; }
 #repositories table th:nth-child(2) { width: 34%; }
 #repositories table th:nth-child(4) { width: 7rem; }
+
+main,
+main > *,
+#repositories,
+#repositories > *,
+#repositories article { min-width: 0; max-width: 100%; }
+#repositories { overflow-x: hidden; }
+#repositories > .grid { grid-template-columns: minmax(0, 1fr); }
+#repositories article { overflow: hidden; }
+#repositories article > div:first-child { min-width: 0; flex-wrap: wrap; }
+#repositories article a { min-width: 0; overflow: hidden; }
+#repositories article a span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#repository-analysis-heading { overflow-wrap: anywhere; }
+
+@media (min-width: 1024px) {
+  #repositories > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #repositories article > div:first-child { flex-wrap: nowrap; }
+}
