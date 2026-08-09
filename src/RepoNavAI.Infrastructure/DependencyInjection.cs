@@ -82,10 +82,16 @@ public static class DependencyInjection
         {
             services.AddOpenAIChatCompletion(openAI.ChatModel, openAI.ApiKey);
             services.AddScoped<IRepositoryAnswerGenerator, SemanticKernelRepositoryAnswerGenerator>();
+            services.AddScoped<IRepositoryOrientationGenerator, SemanticKernelRepositoryOrientationGenerator>();
         }
-        else services.AddSingleton<IRepositoryAnswerGenerator, UnavailableRepositoryAnswerGenerator>();
+        else
+        {
+            services.AddSingleton<IRepositoryAnswerGenerator, UnavailableRepositoryAnswerGenerator>();
+            services.AddSingleton<IRepositoryOrientationGenerator, UnavailableRepositoryOrientationGenerator>();
+        }
         services.AddOptions<RepositoryChatOptions>().Bind(configuration.GetSection(RepositoryChatOptions.SectionName)).Validate(x => x.OrganizationDailyRequestLimit is >= 1 and <= 10_000, "Repository chat daily limit is outside the supported range.").ValidateOnStart();
         services.AddScoped<IRepositoryChatSessionStore, RepositoryChatSessionStore>();
+        services.AddScoped<IRepositoryOrientationStore, RepositoryOrientationStore>();
         services.AddScoped<IVectorStore, PgVectorStore>();
         services.AddHttpClient<IRepositorySnapshotProvider, GitHubSnapshotProvider>(client =>
         {

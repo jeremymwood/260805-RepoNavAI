@@ -73,6 +73,22 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         }
     }
 
+    [HttpGet("{repositoryId:guid}/orientation-plan")]
+    public Task<OrientationPlanDto?> GetOrientationPlan(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) =>
+        sender.Send(new GetOrientationPlanQuery(organizationId, repositoryId), cancellationToken);
+
+    [HttpPost("{repositoryId:guid}/orientation-plan")]
+    [ProducesResponseType<OrientationPlanDto>(StatusCodes.Status201Created)]
+    public async Task<ActionResult<OrientationPlanDto>> CreateOrientationPlan(Guid organizationId, Guid repositoryId, CreateOrientationPlanRequest request, CancellationToken cancellationToken)
+    {
+        var plan = await sender.Send(new CreateOrientationPlanCommand(organizationId, repositoryId, request.Role, request.Experience, request.Focus, request.TimeBudgetMinutes, request.Objective), cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, plan);
+    }
+
+    [HttpPut("{repositoryId:guid}/orientation-plan/{planId:guid}/progress")]
+    public Task<OrientationPlanDto> UpdateOrientationProgress(Guid organizationId, Guid repositoryId, Guid planId, UpdateOrientationProgressRequest request, CancellationToken cancellationToken) =>
+        sender.Send(new UpdateOrientationProgressCommand(organizationId, repositoryId, planId, request.CompletedStepKeys), cancellationToken);
+
     private async Task WriteEventAsync(RepositoryChatEvent chatEvent, CancellationToken cancellationToken)
     {
         var eventName = chatEvent.Type.ToString().ToLowerInvariant();
@@ -84,3 +100,5 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
 
 public sealed record RegisterRepositoryRequest(string Url);
 public sealed record RepositoryChatRequest(string Question);
+public sealed record CreateOrientationPlanRequest(RepoNavAI.Domain.Repositories.OrientationRole Role, RepoNavAI.Domain.Repositories.OrientationExperience Experience, RepoNavAI.Domain.Repositories.OrientationFocus Focus, int TimeBudgetMinutes, string? Objective);
+public sealed record UpdateOrientationProgressRequest(IReadOnlyCollection<string> CompletedStepKeys);

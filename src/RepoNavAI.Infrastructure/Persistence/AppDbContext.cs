@@ -24,6 +24,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositoryEndpoint> RepositoryEndpoints => Set<RepositoryEndpoint>();
     public DbSet<RepositoryChunk> RepositoryChunks => Set<RepositoryChunk>();
     public DbSet<RepositoryChatSession> RepositoryChatSessions => Set<RepositoryChatSession>();
+    public DbSet<RepositoryOrientationPlan> RepositoryOrientationPlans => Set<RepositoryOrientationPlan>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -155,6 +156,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.HasIndex(x => new { x.OrganizationId, x.CreatedAtUtc });
             entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<RegisteredRepository>().WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<RepositoryOrientationPlan>(entity =>
+        {
+            entity.ToTable("RepositoryOrientationPlans"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.CommitSha).HasMaxLength(64).IsRequired(); entity.Property(x => x.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.Experience).HasConversion<string>().HasMaxLength(32); entity.Property(x => x.Focus).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.Model).HasMaxLength(100).IsRequired(); entity.Property(x => x.PlanJson).HasColumnType("jsonb").IsRequired(); entity.Property(x => x.CompletedStepKeysJson).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.RepositoryId, x.UserId, x.CreatedAtUtc });
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<RegisteredRepository>().WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<RepositorySnapshot>().WithMany().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
     }
