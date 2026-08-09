@@ -47,3 +47,12 @@ export interface OrientationPlan {
   focus: OrientationFocus; timeBudgetMinutes: number; summary: string; steps: OrientationStep[];
   missingEvidence: string[]; isStale: boolean; createdAtUtc: string;
 }
+
+export type CodeFlowBoundary = 'Synchronous' | 'Asynchronous' | 'Background' | 'Persistence' | 'External';
+export interface CodeFlowStep {
+  key: string; order: number; title: string; component: string; symbol: string; responsibility: string; handoff: string;
+  boundary: CodeFlowBoundary; evidenceLevel: 'Confirmed' | 'Inferred' | 'Missing'; citations: OrientationCitation[];
+}
+export interface CodeFlowTrace {
+  schemaVersion: string; repositoryId: string; commitSha: string; summary: string; steps: CodeFlowStep[]; missingEvidence: string[];
+}
