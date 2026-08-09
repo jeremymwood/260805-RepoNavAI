@@ -89,6 +89,10 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     public Task<OrientationPlanDto> UpdateOrientationProgress(Guid organizationId, Guid repositoryId, Guid planId, UpdateOrientationProgressRequest request, CancellationToken cancellationToken) =>
         sender.Send(new UpdateOrientationProgressCommand(organizationId, repositoryId, planId, request.CompletedStepKeys), cancellationToken);
 
+    [HttpPost("{repositoryId:guid}/code-flow")]
+    public Task<CodeFlowTraceDto> GenerateCodeFlow(Guid organizationId, Guid repositoryId, GenerateCodeFlowRequest request, CancellationToken cancellationToken) =>
+        sender.Send(new GenerateCodeFlowTraceCommand(organizationId, repositoryId, request.Question), cancellationToken);
+
     private async Task WriteEventAsync(RepositoryChatEvent chatEvent, CancellationToken cancellationToken)
     {
         var eventName = chatEvent.Type.ToString().ToLowerInvariant();
@@ -102,3 +106,4 @@ public sealed record RegisterRepositoryRequest(string Url);
 public sealed record RepositoryChatRequest(string Question);
 public sealed record CreateOrientationPlanRequest(RepoNavAI.Domain.Repositories.OrientationRole Role, RepoNavAI.Domain.Repositories.OrientationExperience Experience, RepoNavAI.Domain.Repositories.OrientationFocus Focus, int TimeBudgetMinutes, string? Objective);
 public sealed record UpdateOrientationProgressRequest(IReadOnlyCollection<string> CompletedStepKeys);
+public sealed record GenerateCodeFlowRequest(string Question);

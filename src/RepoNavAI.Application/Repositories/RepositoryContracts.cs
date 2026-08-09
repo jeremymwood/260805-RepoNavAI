@@ -37,6 +37,14 @@ public sealed record OrientationCitation(string Path, int StartLine, int EndLine
 public sealed record OrientationStep(string Key, string Title, string Objective, string Evidence, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<OrientationCitation> Citations, bool Completed);
 public sealed record OrientationPlanDto(Guid Id, Guid RepositoryId, string CommitSha, OrientationRole Role, OrientationExperience Experience, OrientationFocus Focus, int TimeBudgetMinutes, string Summary, IReadOnlyCollection<OrientationStep> Steps, IReadOnlyCollection<string> MissingEvidence, bool IsStale, DateTimeOffset CreatedAtUtc);
 public sealed record RepositorySnapshotReference(Guid Id, string CommitSha);
+public enum CodeFlowBoundary { Synchronous, Asynchronous, Background, Persistence, External }
+public sealed record CodeFlowDraftStep(string Key, string Title, string Component, string Symbol, string Responsibility,
+    string Handoff, CodeFlowBoundary Boundary, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<int> CitationNumbers);
+public sealed record CodeFlowDraft(string Summary, IReadOnlyCollection<CodeFlowDraftStep> Steps, IReadOnlyCollection<string> MissingEvidence);
+public sealed record CodeFlowStep(string Key, int Order, string Title, string Component, string Symbol, string Responsibility,
+    string Handoff, CodeFlowBoundary Boundary, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<OrientationCitation> Citations);
+public sealed record CodeFlowTraceDto(string SchemaVersion, Guid RepositoryId, string CommitSha, string Summary,
+    IReadOnlyCollection<CodeFlowStep> Steps, IReadOnlyCollection<string> MissingEvidence);
 
 public enum RepositoryChatEventType { Citations, Delta, Completed, Error }
 public sealed record RepositoryChatEvent(RepositoryChatEventType Type, string? Delta = null, IReadOnlyCollection<RepositoryChatCitation>? Citations = null);
@@ -95,6 +103,13 @@ public interface IRepositoryOrientationGenerator
     bool IsConfigured { get; }
     string Model { get; }
     Task<OrientationDraft> GenerateAsync(OrientationProfile profile, IReadOnlyCollection<SemanticSearchResult> sources, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryCodeFlowGenerator
+{
+    bool IsConfigured { get; }
+    string Model { get; }
+    Task<CodeFlowDraft> GenerateAsync(string question, IReadOnlyCollection<SemanticSearchResult> sources, CancellationToken cancellationToken);
 }
 
 public interface IRepositoryOrientationStore
