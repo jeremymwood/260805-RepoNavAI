@@ -30,6 +30,7 @@ public sealed class RepositoryRegistrationRepository(AppDbContext dbContext) : I
 
 public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueries
 {
+    private static readonly string[] SourceExtensions = [".cs", ".ts", ".tsx", ".js", ".jsx"];
     public Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => dbContext.RegisteredRepositories.AnyAsync(x => x.OrganizationId == organizationId && x.Id == repositoryId, cancellationToken);
     public async Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) =>
         await dbContext.RegisteredRepositories.AsNoTracking()
@@ -66,5 +67,18 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
         if (requiresAuthorization.HasValue) query = query.Where(x => x.RequiresAuthorization == requiresAuthorization.Value);
         var rows = await query.OrderBy(x => x.Route).ThenBy(x => x.HttpMethod).Select(x => new { x.Id, x.HttpMethod, x.Route, x.Handler, x.Path, x.Line, x.RequiresAuthorization, x.DownstreamSymbols, x.Snapshot.CommitSha }).ToArrayAsync(cancellationToken);
         return rows.Select(x => new RepositoryEndpointDto(x.Id, x.HttpMethod, x.Route, x.Handler, x.Path, x.Line, x.RequiresAuthorization, string.IsNullOrWhiteSpace(x.DownstreamSymbols) ? [] : System.Text.Json.JsonSerializer.Deserialize<string[]>(x.DownstreamSymbols) ?? [], x.CommitSha, $"{repository.WebUrl}/blob/{x.CommitSha}/{x.Path}#L{x.Line}")).ToArray();
+    }
+
+    public async Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken)
+    {
+        if (!await ExistsAsync(organizationId, repositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
+        var snapshotId = await dbContext.RepositorySnapshots.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId).OrderByDescending(x => x.CreatedAtUtc).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken);
+        if (snapshotId is null) return new(false, false, false, false, false, []);
+        var paths = await dbContext.RepositoryDocuments.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId).OrderBy(x => x.Path).Select(x => x.Path).ToArrayAsync(cancellationToken);
+        var hasChunks = await dbContext.RepositoryChunks.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId, cancellationToken);
+        var hasEndpoints = await dbContext.RepositoryEndpoints.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId, cancellationToken);
+        bool IsSource(string path) => SourceExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+        var representativePaths = paths.Where(IsSource).Concat(paths.Where(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase))).Take(5).ToArray();
+        return new(hasChunks, paths.Any(IsSource), paths.Any(path => path.Contains("test", StringComparison.OrdinalIgnoreCase)), paths.Any(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)), hasEndpoints, representativePaths);
     }
 }

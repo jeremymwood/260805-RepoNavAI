@@ -44,4 +44,48 @@ public sealed class RepositoryCodeFlowPromptTests
 
         prompt.Length.Should().BeLessThan(8_200);
     }
+
+    [Theory]
+    [InlineData("Database", CodeFlowBoundary.Persistence)]
+    [InlineData("data-store", CodeFlowBoundary.Persistence)]
+    [InlineData("Queue", CodeFlowBoundary.Background)]
+    [InlineData("Async", CodeFlowBoundary.Asynchronous)]
+    public void DeserializeDraft_NormalizesSafeBoundaryAliases(string boundary, CodeFlowBoundary expected)
+    {
+        var json = $$"""{"summary":"Trace","steps":[{"key":"one","title":"One","component":"API","symbol":"Run","responsibility":"Runs","handoff":"Done","boundary":"{{boundary}}","evidenceLevel":"Confirmed","citationNumbers":[1]}],"missingEvidence":[]}""";
+
+        var draft = SemanticKernelRepositoryCodeFlowGenerator.DeserializeDraft(json);
+
+        draft.Steps.Single().Boundary.Should().Be(expected);
+    }
+
+    [Fact]
+    public void DeserializeDraft_RejectsUnknownBoundary()
+    {
+        var json = """{"summary":"Trace","steps":[{"key":"one","title":"One","component":"API","symbol":"Run","responsibility":"Runs","handoff":"Done","boundary":"Magic","evidenceLevel":"Confirmed","citationNumbers":[1]}],"missingEvidence":[]}""";
+
+        var act = () => SemanticKernelRepositoryCodeFlowGenerator.DeserializeDraft(json);
+
+        act.Should().Throw<System.Text.Json.JsonException>();
+    }
+
+    [Fact]
+    public void DeserializeDraft_NormalizesSingleMissingEvidenceString()
+    {
+        var json = """{"summary":"Trace","steps":[{"key":"one","title":"One","component":"API","symbol":"Run","responsibility":"Runs","handoff":"Done","boundary":"Synchronous","evidenceLevel":"Confirmed","citationNumbers":[1]}],"missingEvidence":"The terminal response was not found."}""";
+
+        var draft = SemanticKernelRepositoryCodeFlowGenerator.DeserializeDraft(json);
+
+        draft.MissingEvidence.Should().Equal("The terminal response was not found.");
+    }
+
+    [Fact]
+    public void DeserializeDraft_RejectsStructuredMissingEvidenceObject()
+    {
+        var json = """{"summary":"Trace","steps":[],"missingEvidence":{"detail":"unsafe shape"}}""";
+
+        var act = () => SemanticKernelRepositoryCodeFlowGenerator.DeserializeDraft(json);
+
+        act.Should().Throw<System.Text.Json.JsonException>();
+    }
 }

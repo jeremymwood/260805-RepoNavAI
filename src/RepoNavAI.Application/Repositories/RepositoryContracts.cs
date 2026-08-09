@@ -27,6 +27,7 @@ public sealed record ParsedSymbol(string Name, string QualifiedName, SymbolKind 
 public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollection<RepositorySourceFile> Files);
 public sealed record ParsedEndpoint(string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols);
 public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols, string CommitSha, string SourceUrl);
+public sealed record RepositoryCapabilitiesDto(bool HasIndexedContent, bool HasSourceCode, bool HasTests, bool HasDocumentation, bool HasApiEndpoints, IReadOnlyCollection<string> RepresentativePaths);
 public sealed record TextChunk(int Ordinal, int StartLine, int EndLine, string Content);
 public sealed record SemanticSearchResult(Guid ChunkId, string Path, int StartLine, int EndLine, string Content, double Score, string CommitSha, string SourceUrl);
 public sealed record RepositoryChatCitation(int Number, string Path, int StartLine, int EndLine, string CommitSha, string SourceUrl, double Score);
@@ -66,6 +67,7 @@ public interface IRepositoryQueries
     Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken);
     Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken);
+    Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
     Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
 }
 
