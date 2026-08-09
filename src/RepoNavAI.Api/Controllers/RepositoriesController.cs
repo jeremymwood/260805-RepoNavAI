@@ -93,6 +93,10 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     public Task<CodeFlowTraceDto> GenerateCodeFlow(Guid organizationId, Guid repositoryId, GenerateCodeFlowRequest request, CancellationToken cancellationToken) =>
         sender.Send(new GenerateCodeFlowTraceCommand(organizationId, repositoryId, request.Question), cancellationToken);
 
+    [HttpPost("{repositoryId:guid}/assistant/intent")]
+    public Task<RepositoryAssistantIntentDto> ResolveAssistantIntent(Guid organizationId, Guid repositoryId, ResolveAssistantIntentRequest request, CancellationToken cancellationToken) =>
+        sender.Send(new ResolveRepositoryAssistantIntentQuery(organizationId, repositoryId, request.Prompt), cancellationToken);
+
     private async Task WriteEventAsync(RepositoryChatEvent chatEvent, CancellationToken cancellationToken)
     {
         var eventName = chatEvent.Type.ToString().ToLowerInvariant();
@@ -107,3 +111,4 @@ public sealed record RepositoryChatRequest(string Question);
 public sealed record CreateOrientationPlanRequest(RepoNavAI.Domain.Repositories.OrientationRole Role, RepoNavAI.Domain.Repositories.OrientationExperience Experience, RepoNavAI.Domain.Repositories.OrientationFocus Focus, int TimeBudgetMinutes, string? Objective);
 public sealed record UpdateOrientationProgressRequest(IReadOnlyCollection<string> CompletedStepKeys);
 public sealed record GenerateCodeFlowRequest(string Question);
+public sealed record ResolveAssistantIntentRequest(string Prompt);
