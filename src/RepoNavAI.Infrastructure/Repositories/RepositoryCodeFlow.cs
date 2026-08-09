@@ -44,15 +44,22 @@ public sealed class SemanticKernelRepositoryCodeFlowGenerator(IChatCompletionSer
         var response = await chatCompletion.GetChatMessageContentAsync(history, settings, cancellationToken: cancellationToken);
         try
         {
-            var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web); jsonOptions.Converters.Add(new JsonStringEnumConverter());
-            return JsonSerializer.Deserialize<CodeFlowDraft>(SemanticKernelRepositoryOrientationGenerator.ExtractJson(response.Content), jsonOptions)
-                ?? throw new JsonException();
+            return DeserializeDraft(SemanticKernelRepositoryOrientationGenerator.ExtractJson(response.Content));
         }
         catch (JsonException exception)
         {
             logger.LogWarning(exception, "Code-flow provider returned invalid JSON with {ResponseLength} characters using model {Model}", response.Content?.Length ?? 0, Model);
             throw new ExternalServiceException("The code-flow provider returned an invalid response. Please retry.");
         }
+    }
+
+    internal static CodeFlowDraft DeserializeDraft(string json)
+    {
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        jsonOptions.Converters.Add(new CodeFlowBoundaryJsonConverter());
+        jsonOptions.Converters.Add(new FlexibleStringCollectionJsonConverter());
+        jsonOptions.Converters.Add(new JsonStringEnumConverter());
+        return JsonSerializer.Deserialize<CodeFlowDraft>(json, jsonOptions) ?? throw new JsonException();
     }
 
     internal static string BuildRequest(string question, IReadOnlyCollection<SemanticSearchResult> sources, int maximumCharacters)
@@ -69,4 +76,47 @@ public sealed class SemanticKernelRepositoryCodeFlowGenerator(IChatCompletionSer
         }
         return builder.ToString();
     }
+}
+
+internal sealed class FlexibleStringCollectionJsonConverter : JsonConverter<IReadOnlyCollection<string>>
+{
+    public override IReadOnlyCollection<string> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return [];
+        if (reader.TokenType == JsonTokenType.String) return [reader.GetString() ?? string.Empty];
+        if (reader.TokenType != JsonTokenType.StartArray) throw new JsonException("Expected a string or string array.");
+        var values = new List<string>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String) throw new JsonException("Expected a string array.");
+            values.Add(reader.GetString() ?? string.Empty);
+        }
+        return values;
+    }
+
+    public override void Write(Utf8JsonWriter writer, IReadOnlyCollection<string> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (var item in value) writer.WriteStringValue(item);
+        writer.WriteEndArray();
+    }
+}
+
+internal sealed class CodeFlowBoundaryJsonConverter : JsonConverter<CodeFlowBoundary>
+{
+    public override CodeFlowBoundary Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var value = reader.GetString()?.Replace("_", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal).Trim().ToLowerInvariant();
+        return value switch
+        {
+            "sync" or "synchronous" => CodeFlowBoundary.Synchronous,
+            "async" or "asynchronous" => CodeFlowBoundary.Asynchronous,
+            "background" or "queue" or "queued" or "worker" => CodeFlowBoundary.Background,
+            "persistence" or "database" or "datastore" or "storage" => CodeFlowBoundary.Persistence,
+            "external" or "http" or "network" or "provider" => CodeFlowBoundary.External,
+            _ => throw new JsonException($"Unsupported code-flow boundary '{value}'.")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, CodeFlowBoundary value, JsonSerializerOptions options) => writer.WriteStringValue(value.ToString());
 }

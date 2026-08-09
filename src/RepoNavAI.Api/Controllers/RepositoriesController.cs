@@ -42,6 +42,10 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpoints(Guid organizationId, Guid repositoryId, [FromQuery] string? method, [FromQuery] string? search, [FromQuery] bool? requiresAuthorization, CancellationToken cancellationToken) =>
         sender.Send(new ListRepositoryEndpointsQuery(organizationId, repositoryId, method, search, requiresAuthorization), cancellationToken);
 
+    [HttpGet("{repositoryId:guid}/capabilities")]
+    public Task<RepositoryCapabilitiesDto> GetCapabilities(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) =>
+        sender.Send(new GetRepositoryCapabilitiesQuery(organizationId, repositoryId), cancellationToken);
+
     [HttpGet("{repositoryId:guid}/semantic-search")]
     public Task<IReadOnlyCollection<SemanticSearchResult>> SemanticSearch(Guid organizationId, Guid repositoryId, [FromQuery] string query, [FromQuery] int limit = 10, CancellationToken cancellationToken = default) =>
         sender.Send(new SemanticSearchQuery(organizationId, repositoryId, query, limit), cancellationToken);
