@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Github, Plus } from 'lucide-react';
+import { AppIcon } from '../components/AppIcon';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, getApiError } from '../api/client';
 import type { RegisteredRepository } from './types';
@@ -19,9 +20,9 @@ export function RepositoryPanel({ organizationId, initialVisibleCount }: { organ
   function toggleRepositories() { setShowAll(value => { const next = !value; const params = new URLSearchParams(searchParams); if (next) params.set('repositories', 'all'); else params.delete('repositories'); setSearchParams(params, { replace: true }); return next; }); }
   function explore(repositoryId: string) { navigate(`/repositories/${repositoryId}`, { state: { returnTo: `${location.pathname}${location.search}#repositories` } }); }
 
-  return <section id="repositories" className="mt-3 scroll-mt-28 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-    <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><Github size={20}/></span><div><p className="font-semibold text-ink">Repositories</p><p className="text-sm text-slate-500">Register a GitHub repository and queue it for analysis.</p></div></div>
-    <form id="register-repository" className="mt-6 scroll-mt-28 flex flex-col gap-3 md:flex-row" onSubmit={submit}><input className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm text-ink outline-none focus:border-brand-500" type="url" required maxLength={2048} value={url} onChange={event => setUrl(event.target.value)} placeholder="https://github.com/owner/repository" aria-label="GitHub repository URL"/><button className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white disabled:opacity-60" disabled={register.isPending}>{register.isPending ? 'Verifying...' : <><Plus size={17}/> Register</>}</button></form>
+  return <section id="repositories" className="mt-8 scroll-mt-28 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><AppIcon icon={Github} size="lg"/></span><div><p className="font-semibold text-ink">Repositories</p><p className="text-sm text-slate-500">Register a GitHub repository and queue it for analysis.</p></div></div>
+    <form id="register-repository" className="mt-6 scroll-mt-28 flex flex-col gap-3 md:flex-row" onSubmit={submit}><input className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm text-ink outline-none focus:border-brand-500" type="url" required maxLength={2048} value={url} onChange={event => setUrl(event.target.value)} placeholder="https://github.com/owner/repository" aria-label="GitHub repository URL"/><button className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white disabled:opacity-60" disabled={register.isPending}>{register.isPending ? 'Verifying...' : <><AppIcon icon={Plus} size="sm"/> Register</>}</button></form>
     <p className="mt-2 text-xs text-slate-400">Private repositories require access through the server-configured GitHub integration.</p>
     {error && <div className="error mt-4">{error}</div>}
     {repositories.isLoading ? <p className="mt-6 text-sm text-slate-500">Loading repositories...</p> : repositories.data?.length ? <div className="mt-6 grid gap-3 md:grid-cols-2">{visibleRepositories?.map(repository => <RepositoryCard key={repository.id} repository={repository} selected={false} onCancel={() => indexingAction.mutate({ repositoryId: repository.id, action: 'cancel' })} onRetry={() => indexingAction.mutate({ repositoryId: repository.id, action: 'retry' })} onExplore={() => explore(repository.id)}/>)}</div> : <div className="mt-6 rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">No repositories registered yet.</div>}

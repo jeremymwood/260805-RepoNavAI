@@ -60,19 +60,10 @@ main > *,
 #repositories article a { min-width: 0; overflow: hidden; }
 #repository-analysis-heading { overflow-wrap: anywhere; }
 
-#workspace-greeting { padding: 1.25rem 1.5rem; }
-#workspace-greeting > div { display: block; }
-#workspace-greeting > div > p { white-space: nowrap; }
-#workspace-greeting > div > div { margin-top: .75rem; }
-#workspace-greeting h1 { font-size: 1.5rem; line-height: 2rem; }
-#workspace-greeting p { margin-top: .25rem; }
-#workspace-greeting > p { max-width: none; }
-
 header.sticky { height: 5rem; }
 header.sticky > div { height: 100%; }
 
 @media (max-width: 639px) {
-  #workspace-greeting { padding: 1.25rem; }
 }
 
 @media (min-width: 1024px) {

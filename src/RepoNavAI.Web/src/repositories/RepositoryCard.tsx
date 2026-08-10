@@ -1,4 +1,5 @@
 import { Compass, ExternalLink, GitBranch, LockKeyhole } from 'lucide-react';
+import { AppIcon } from '../components/AppIcon';
 import { IndexingStatusBadge } from './IndexingStatusBadge';
 import type { RegisteredRepository } from './types';
 
@@ -16,7 +17,7 @@ export function RepositoryCard({ repository, selected, onCancel, onRetry, onExpl
       <span className="block break-all text-xs font-medium text-slate-500">{repository.owner}/</span>
       <span className="mt-0.5 flex min-w-0 items-start gap-1 text-base font-semibold leading-5 text-ink group-hover:text-brand-600">
         <span className="min-w-0 break-words [overflow-wrap:anywhere]">{repository.name}</span>
-        <ExternalLink aria-hidden="true" size={13} className="mt-0.5 shrink-0"/>
+        <AppIcon icon={ExternalLink} size="xs" className="mt-0.5 shrink-0"/>
       </span>
     </a>
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -30,7 +31,7 @@ export function RepositoryCard({ repository, selected, onCancel, onRetry, onExpl
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
       {(['Pending', 'Processing'].includes(repository.indexingStatus)) && <button className="text-xs font-semibold text-slate-500 hover:text-red-600" onClick={onCancel}>Cancel</button>}
       {(['Failed', 'Cancelled'].includes(repository.indexingStatus)) && <button className="text-xs font-semibold text-brand-600" onClick={onRetry}>Retry indexing</button>}
-      {repository.indexingStatus === 'Completed' && <button className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600" onClick={onExplore}><Compass aria-hidden="true" size={14}/> Explore repository</button>}
+      {repository.indexingStatus === 'Completed' && <button className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600" onClick={onExplore}><AppIcon icon={Compass} size="xs"/> Explore repository</button>}
     </div>
   </article>;
 }

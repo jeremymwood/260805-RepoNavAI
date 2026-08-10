@@ -1,4 +1,5 @@
 import { Ban, CircleCheck, CircleX, Clock3, LoaderCircle, CircleHelp, type LucideIcon } from 'lucide-react';
+import { AppIcon } from '../components/AppIcon';
 import type { IndexingRequestStatus } from './types';
 
 interface StatusPresentation {
@@ -25,9 +26,8 @@ export function getIndexingStatusPresentation(status: string): StatusPresentatio
 
 export function IndexingStatusBadge({ status }: { status: IndexingRequestStatus | string }) {
   const presentation = getIndexingStatusPresentation(status);
-  const Icon = presentation.icon;
   return <span aria-label={presentation.description} className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${presentation.className}`}>
-    <Icon aria-hidden="true" size={13} className={presentation.animated ? 'animate-spin motion-reduce:animate-none' : undefined}/>
+    <AppIcon icon={presentation.icon} size="xs" className={presentation.animated ? 'animate-spin motion-reduce:animate-none' : undefined}/>
     {presentation.label}
   </span>;
 }
