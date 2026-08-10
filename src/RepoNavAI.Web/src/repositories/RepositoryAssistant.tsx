@@ -4,7 +4,7 @@ import { api, getApiError, streamApi } from '../api/client';
 import type { CodeFlowTrace, OrientationExperience, OrientationFocus, OrientationPlan, OrientationRole, RegisteredRepository, RepositoryChatCitation, RepositoryChatEvent, SemanticSearchResult } from './types';
 import { applicableGuidedPrompts, nextGuidedPromptSet, type GuidedPrompt } from './guidedPrompts';
 
-type AssistantMode = 'Auto' | 'Search' | 'Answer' | 'Orientation' | 'CodeFlow';
+export type AssistantMode = 'Auto' | 'Search' | 'Answer' | 'Orientation' | 'CodeFlow';
 type AssistantResult =
   | { kind: 'Search'; results: SemanticSearchResult[] }
   | { kind: 'Answer'; answer: string; citations: RepositoryChatCitation[] }
@@ -13,8 +13,8 @@ type AssistantResult =
 interface IntentResponse { intent: Exclude<AssistantMode, 'Auto'>; reason: string }
 interface CapabilityResponse { hasIndexedContent: boolean; hasSourceCode: boolean; hasTests: boolean; hasDocumentation: boolean; hasApiEndpoints: boolean; representativePaths: string[] }
 
-export function RepositoryAssistant({ organizationId, repository }: { organizationId: string; repository: RegisteredRepository }) {
-  const [prompt, setPrompt] = useState(''); const [mode, setMode] = useState<AssistantMode>('Auto'); const [resolvedMode, setResolvedMode] = useState<Exclude<AssistantMode, 'Auto'>>();
+export function RepositoryAssistant({ organizationId, repository, initialMode = 'Auto' }: { organizationId: string; repository: RegisteredRepository; initialMode?: AssistantMode }) {
+  const [prompt, setPrompt] = useState(''); const [mode, setMode] = useState<AssistantMode>(initialMode); const [resolvedMode, setResolvedMode] = useState<Exclude<AssistantMode, 'Auto'>>();
   const [result, setResult] = useState<AssistantResult>(); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [isRunning, setRunning] = useState(false);
   const [role, setRole] = useState<OrientationRole>('Developer'); const [experience, setExperience] = useState<OrientationExperience>('MidLevel');
   const [focus, setFocus] = useState<OrientationFocus>('GeneralOnboarding'); const [timeBudgetMinutes, setTime] = useState(60);
@@ -82,7 +82,7 @@ export function RepositoryAssistant({ organizationId, repository }: { organizati
   }
   function rotatePrompts() { if (guidedPrompts.length > visiblePrompts.length) setPromptSetStart(current => (current + visiblePrompts.length) % guidedPrompts.length); }
 
-  return <div id="repository-assistant" className="mt-8 min-w-0 border-t border-slate-200 pt-6">
+  return <div id="repository-assistant" className="min-w-0">
     <div className="flex items-center gap-2"><Sparkles className="text-brand-600" size={19}/><h3 className="font-semibold text-ink">Repository assistant</h3></div>
     <p className="mt-1 text-sm text-slate-500">Search source, ask a cited question, build an orientation, or trace a code flow from one place.</p>
     <div className="mt-4 rounded-xl bg-slate-50 p-3" aria-label="Suggested repository questions">
@@ -90,7 +90,13 @@ export function RepositoryAssistant({ organizationId, repository }: { organizati
       {capabilities && visiblePrompts.length === 0 ? <p className="mt-2 text-sm text-slate-500">No guided prompts are available because this index contains no supported searchable source. You can still enter your own question.</p> : <div className="mt-2 flex flex-wrap gap-2">{visiblePrompts.map(suggestion => <button key={suggestion.id} type="button" className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs leading-5 text-slate-600 hover:border-brand-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500" onClick={() => selectPrompt(suggestion)}><span className="mr-2 font-semibold text-brand-700">{suggestion.mode === 'CodeFlow' ? 'Code flow' : suggestion.mode}</span>{suggestion.text}</button>)}</div>}
     </div>
     <form className="mt-4" onSubmit={submit}>
-      <div className="flex flex-col gap-3 md:flex-row"><label className="text-xs font-semibold text-slate-500 md:w-44">Mode<select aria-label="Assistant mode" className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" value={mode} disabled={isRunning} onChange={event => { setMode(event.target.value as AssistantMode); setResolvedMode(undefined); }}>{['Auto','Search','Answer','Orientation','CodeFlow'].map(value => <option key={value} value={value}>{value === 'CodeFlow' ? 'Code flow' : value}</option>)}</select></label><label className="min-w-0 flex-1 text-xs font-semibold text-slate-500">What do you want to understand?<textarea ref={promptRef} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none focus:border-brand-500" maxLength={2000} required disabled={isRunning} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="How does repository indexing recover after an API restart?"/></label>{isRunning ? <button key="stop-assistant" type="button" className="mt-5 inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-600" onClick={event => { event.preventDefault(); event.stopPropagation(); cancel(); }}><Square size={14}/> Stop</button> : <button key="run-assistant" type="submit" className="mt-5 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white"><Sparkles size={16}/> Ask</button>}</div>
+      <div className="flex flex-col gap-3 md:flex-row md:items-stretch">
+        <label className="flex min-w-0 flex-1 flex-col text-xs font-semibold text-slate-500">What do you want to understand?<textarea ref={promptRef} className="mt-1 min-h-24 w-full flex-1 resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-normal text-ink outline-none focus:border-brand-500" maxLength={2000} required disabled={isRunning} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="How does repository indexing recover after an API restart?"/></label>
+        <div className="flex flex-col md:w-44">
+          <label className="text-xs font-semibold text-slate-500">Mode<select aria-label="Assistant mode" className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-ink" value={mode} disabled={isRunning} onChange={event => { setMode(event.target.value as AssistantMode); setResolvedMode(undefined); }}>{['Auto','Search','Answer','Orientation','CodeFlow'].map(value => <option key={value} value={value}>{value === 'CodeFlow' ? 'Code flow' : value}</option>)}</select></label>
+          {isRunning ? <button key="stop-assistant" type="button" className="mt-3 inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-600 md:flex-1" onClick={event => { event.preventDefault(); event.stopPropagation(); cancel(); }}><Square size={14}/> Stop</button> : <button key="run-assistant" type="submit" className="mt-3 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white md:flex-1"><Sparkles size={16}/> Ask</button>}
+        </div>
+      </div>
       {showOrientationOptions && <div className="mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-4"><CompactSelect label="Role" value={role} values={['Developer','Tester','Architect','DevOps','Product']} onChange={value => setRole(value as OrientationRole)}/><CompactSelect label="Experience" value={experience} values={['NewToSoftware','Junior','MidLevel','Senior']} onChange={value => setExperience(value as OrientationExperience)}/><CompactSelect label="Focus" value={focus} values={['GeneralOnboarding','ImplementFeature','FixBug','Architecture','Operations']} onChange={value => setFocus(value as OrientationFocus)}/><CompactSelect label="Time" value={String(timeBudgetMinutes)} values={['30','60','120','240']} onChange={value => setTime(Number(value))}/></div>}
     </form>
     {resolvedMode && <p className="mt-3 text-xs font-semibold text-brand-700">Using {resolvedMode === 'CodeFlow' ? 'Code flow' : resolvedMode} mode{mode === 'Auto' ? ' (automatically selected)' : ''}.</p>}

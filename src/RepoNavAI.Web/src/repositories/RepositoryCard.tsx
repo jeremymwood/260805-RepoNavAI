@@ -12,7 +12,7 @@ interface RepositoryCardProps {
 
 export function RepositoryCard({ repository, selected, onCancel, onRetry, onExplore }: RepositoryCardProps) {
   return <article className={`min-w-0 overflow-hidden rounded-xl border p-4 ${selected ? 'border-brand-500 ring-2 ring-brand-100' : 'border-slate-200'}`}>
-    <a className="group block min-w-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" href={repository.webUrl} target="_blank" rel="noreferrer" title={repository.fullName}>
+    <a className="group block min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" href={repository.webUrl} target="_blank" rel="noreferrer" title={repository.fullName}>
       <span className="block break-all text-xs font-medium text-slate-500">{repository.owner}/</span>
       <span className="mt-0.5 flex min-w-0 items-start gap-1 text-base font-semibold leading-5 text-ink group-hover:text-brand-600">
         <span className="min-w-0 break-words [overflow-wrap:anywhere]">{repository.name}</span>
