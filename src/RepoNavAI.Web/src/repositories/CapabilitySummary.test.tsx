@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { CapabilitySummary } from './RepositoryPanel';
+import { CapabilitySummary } from './RepositoryWorkspacePage';
 
 describe('CapabilitySummary', () => {
   it('states available and unavailable repository capabilities', () => {
