@@ -83,6 +83,6 @@ internal static class CodeFlowMapping
                 step.Handoff, step.Boundary, step.EvidenceLevel, citations);
         }).ToArray();
         if (steps.Length == 0) throw new ExternalServiceException("The code-flow provider returned an empty trace.");
-        return new CodeFlowTraceDto("1.0", repositoryId, commitSha, draft.Summary, steps, draft.MissingEvidence?.Take(10).ToArray() ?? []);
+        return new CodeFlowTraceDto("1.0", repositoryId, commitSha, draft.Summary, steps, draft.MissingEvidence?.Take(10).ToArray() ?? [], sources);
     }
 }

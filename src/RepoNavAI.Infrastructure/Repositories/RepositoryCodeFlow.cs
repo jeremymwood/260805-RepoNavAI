@@ -39,9 +39,11 @@ public sealed class SemanticKernelRepositoryCodeFlowGenerator(IChatCompletionSer
         var history = new ChatHistory(SystemPrompt);
         history.AddUserMessage(BuildRequest(question, sources, _options.ChatMaximumContextCharacters));
 #pragma warning disable SKEXP0010
-        var settings = new OpenAIPromptExecutionSettings { Temperature = 0.1, MaxTokens = Math.Max(_options.ChatMaxOutputTokens, 3000), ResponseFormat = "json_object" };
+        var settings = new OpenAIPromptExecutionSettings { Temperature = 0.1, MaxTokens = _options.CodeFlowMaxOutputTokens, ResponseFormat = "json_object" };
 #pragma warning restore SKEXP0010
-        var response = await chatCompletion.GetChatMessageContentAsync(history, settings, cancellationToken: cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(_options.CodeFlowTimeoutSeconds));
+        var response = await chatCompletion.GetChatMessageContentAsync(history, settings, cancellationToken: timeout.Token);
         try
         {
             return DeserializeDraft(SemanticKernelRepositoryOrientationGenerator.ExtractJson(response.Content));

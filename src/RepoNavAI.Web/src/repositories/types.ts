@@ -63,5 +63,5 @@ export interface CodeFlowStep {
   boundary: CodeFlowBoundary; evidenceLevel: 'Confirmed' | 'Inferred' | 'Missing'; citations: OrientationCitation[];
 }
 export interface CodeFlowTrace {
-  schemaVersion: string; repositoryId: string; commitSha: string; summary: string; steps: CodeFlowStep[]; missingEvidence: string[];
+  schemaVersion: string; repositoryId: string; commitSha: string; summary: string; steps: CodeFlowStep[]; missingEvidence: string[]; sources: SemanticSearchResult[];
 }
