@@ -25,6 +25,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositoryChunk> RepositoryChunks => Set<RepositoryChunk>();
     public DbSet<RepositoryChatSession> RepositoryChatSessions => Set<RepositoryChatSession>();
     public DbSet<RepositoryOrientationPlan> RepositoryOrientationPlans => Set<RepositoryOrientationPlan>();
+    public DbSet<RepositoryFavorite> RepositoryFavorites => Set<RepositoryFavorite>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -99,6 +100,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.HasIndex(x => new { x.OrganizationId, x.Provider, x.Owner, x.Name }).IsUnique();
             entity.HasOne(x => x.Organization).WithMany(x => x.Repositories).HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RegisteredByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<RepositoryFavorite>(entity =>
+        {
+            entity.ToTable("RepositoryFavorites");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.HasIndex(x => new { x.OrganizationId, x.UserId, x.RepositoryId }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.UserId });
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<RegisteredRepository>().WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
         builder.Entity<RepositoryIndexingRequest>(entity =>
         {
