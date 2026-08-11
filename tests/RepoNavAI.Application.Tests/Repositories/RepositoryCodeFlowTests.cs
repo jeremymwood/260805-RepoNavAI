@@ -19,6 +19,7 @@ public sealed class RepositoryCodeFlowTests
         var result = CodeFlowMapping.Map(Guid.NewGuid(), "abc123", draft, [Source]);
 
         result.Steps.Single().Citations.Single().Should().Be(new OrientationCitation(Source.Path, Source.StartLine, Source.EndLine, Source.CommitSha, Source.SourceUrl));
+        result.Sources.Should().ContainSingle().Which.Should().Be(Source);
     }
 
     [Fact]

@@ -49,7 +49,7 @@ public sealed record CodeFlowDraft(string Summary, IReadOnlyCollection<CodeFlowD
 public sealed record CodeFlowStep(string Key, int Order, string Title, string Component, string Symbol, string Responsibility,
     string Handoff, CodeFlowBoundary Boundary, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<OrientationCitation> Citations);
 public sealed record CodeFlowTraceDto(string SchemaVersion, Guid RepositoryId, string CommitSha, string Summary,
-    IReadOnlyCollection<CodeFlowStep> Steps, IReadOnlyCollection<string> MissingEvidence);
+    IReadOnlyCollection<CodeFlowStep> Steps, IReadOnlyCollection<string> MissingEvidence, IReadOnlyCollection<SemanticSearchResult> Sources);
 
 public enum RepositoryChatEventType { Citations, Delta, Completed, Error }
 public sealed record RepositoryChatEvent(RepositoryChatEventType Type, string? Delta = null, IReadOnlyCollection<RepositoryChatCitation>? Citations = null);

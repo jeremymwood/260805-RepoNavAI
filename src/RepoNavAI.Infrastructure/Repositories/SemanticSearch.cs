@@ -21,6 +21,8 @@ public sealed class OpenAIOptions
     public int EmbeddingDimensions { get; init; } = 512;
     public string ChatModel { get; init; } = "gpt-4.1-mini";
     public int ChatMaxOutputTokens { get; init; } = 1200;
+    public int CodeFlowMaxOutputTokens { get; init; } = 3000;
+    public int CodeFlowTimeoutSeconds { get; init; } = 90;
     public int ChatMaximumContextCharacters { get; init; } = 32_000;
 }
 

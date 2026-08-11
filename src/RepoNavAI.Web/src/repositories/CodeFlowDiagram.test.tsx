@@ -4,7 +4,7 @@ import { CodeFlowDiagram, validateCodeFlowTrace } from './CodeFlowDiagram';
 import type { CodeFlowTrace } from './types';
 
 const trace: CodeFlowTrace = {
-  schemaVersion: '1.0', repositoryId: 'repository-id', commitSha: 'abc123', summary: 'A request crosses application boundaries.', missingEvidence: [],
+  schemaVersion: '1.0', repositoryId: 'repository-id', commitSha: 'abc123', summary: 'A request crosses application boundaries.', missingEvidence: [], sources: [],
   steps: [
     { key: 'entry', order: 1, title: 'Receive request', component: 'API', symbol: 'Run', responsibility: 'Accept the request.', handoff: 'Queue work.', boundary: 'Synchronous', evidenceLevel: 'Confirmed', citations: [{ path: 'src/Api.cs', startLine: 10, endLine: 15, commitSha: 'abc123', sourceUrl: 'https://github.com/example/repo/blob/abc123/src/Api.cs#L10-L15' }] },
     { key: 'worker', order: 2, title: 'Process work', component: 'Worker', symbol: 'Execute', responsibility: 'Run asynchronously.', handoff: 'Persist result.', boundary: 'Background', evidenceLevel: 'Inferred', citations: [] },
