@@ -6,7 +6,7 @@ import { api, getApiError } from '../api/client';
 import { useOrganization } from '../organizations/OrganizationContext';
 import { IndexingStatusBadge } from './IndexingStatusBadge';
 import { RepositoryAssistant } from './RepositoryAssistant';
-import type { RegisteredRepository, RepositoryEndpoint } from './types';
+import type { RegisteredRepository, RepositoryEndpoint, RepositoryPage } from './types';
 
 export interface RepositoryCapabilities { hasIndexedContent: boolean; hasSourceCode: boolean; hasTests: boolean; hasDocumentation: boolean; hasApiEndpoints: boolean; representativePaths: string[] }
 export type RepositoryWorkspaceView = 'summary' | 'assistant' | 'search' | 'endpoints';
@@ -17,11 +17,12 @@ export function resolveWorkspaceView(value: string | null, capabilities?: Reposi
   return 'summary';
 }
 export function visibleEndpointCount(total: number, expanded: boolean, previewCount = 5) { return expanded ? total : Math.min(total, previewCount); }
+export function findRepository(page: RepositoryPage | undefined, repositoryId: string | undefined) { return page?.items.find(item => item.id === repositoryId); }
 
 export function RepositoryWorkspacePage() {
   const { repositoryId } = useParams(); const { current } = useOrganization(); const location = useLocation(); const [searchParams, setSearchParams] = useSearchParams(); const queryClient = useQueryClient(); const headingRef = useRef<HTMLHeadingElement>(null);
-  const repositories = useQuery({ queryKey: ['organization', current?.id, 'repositories'], queryFn: async () => (await api.get<RegisteredRepository[]>(`/organizations/${current!.id}/repositories`)).data, enabled: Boolean(current) });
-  const repository = repositories.data?.find(item => item.id === repositoryId);
+  const repositories = useQuery({ queryKey: ['organization', current?.id, 'repositories', 'workspace'], queryFn: async () => (await api.get<RepositoryPage>(`/organizations/${current!.id}/repositories`, { params: { page: 1, pageSize: 50 } })).data, enabled: Boolean(current) });
+  const repository = findRepository(repositories.data, repositoryId);
   const capabilities = useQuery({ queryKey: ['repository-capabilities', current?.id, repositoryId], queryFn: async () => (await api.get<RepositoryCapabilities>(`/organizations/${current!.id}/repositories/${repositoryId}/capabilities`)).data, enabled: Boolean(current && repository?.indexingStatus === 'Completed') });
   const reindex = useMutation({ mutationFn: () => api.post(`/organizations/${current!.id}/repositories/${repositoryId}/indexing/reindex`), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['organization', current!.id, 'repositories'] }); }, });
   const activeView = resolveWorkspaceView(searchParams.get('view'), capabilities.data);
