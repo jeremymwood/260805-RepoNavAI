@@ -15,8 +15,8 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
 {
     private static readonly JsonSerializerOptions StreamJsonOptions = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
     [HttpGet]
-    public Task<IReadOnlyCollection<RepositoryDto>> List(Guid organizationId, CancellationToken cancellationToken) =>
-        sender.Send(new ListRepositoriesQuery(organizationId), cancellationToken);
+    public Task<RepositoryPage> List(Guid organizationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default) =>
+        sender.Send(new ListRepositoriesQuery(organizationId, page, pageSize), cancellationToken);
 
     [HttpPost]
     [ProducesResponseType<RepositoryDto>(StatusCodes.Status201Created)]
@@ -24,6 +24,13 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     {
         var repository = await sender.Send(new RegisterRepositoryCommand(organizationId, request.Url), cancellationToken);
         return StatusCode(StatusCodes.Status201Created, repository);
+    }
+
+    [HttpPut("{repositoryId:guid}/favorite")]
+    public async Task<IActionResult> SetFavorite(Guid organizationId, Guid repositoryId, SetRepositoryFavoriteRequest request, CancellationToken cancellationToken)
+    {
+        await sender.Send(new SetRepositoryFavoriteCommand(organizationId, repositoryId, request.IsFavorite), cancellationToken);
+        return NoContent();
     }
 
     [HttpGet("{repositoryId:guid}/indexing")]
@@ -111,6 +118,7 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
 }
 
 public sealed record RegisterRepositoryRequest(string Url);
+public sealed record SetRepositoryFavoriteRequest(bool IsFavorite);
 public sealed record RepositoryChatRequest(string Question);
 public sealed record CreateOrientationPlanRequest(RepoNavAI.Domain.Repositories.OrientationRole Role, RepoNavAI.Domain.Repositories.OrientationExperience Experience, RepoNavAI.Domain.Repositories.OrientationFocus Focus, int TimeBudgetMinutes, string? Objective);
 public sealed record UpdateOrientationProgressRequest(IReadOnlyCollection<string> CompletedStepKeys);

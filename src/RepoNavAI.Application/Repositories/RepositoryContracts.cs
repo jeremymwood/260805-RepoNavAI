@@ -20,7 +20,11 @@ public sealed record GitHubRepositoryAddress(string Owner, string Name)
 }
 
 public sealed record ProviderRepository(string ProviderRepositoryId, string Owner, string Name, string DefaultBranch, RepositoryVisibility Visibility, string WebUrl);
-public sealed record RepositoryDto(Guid Id, Guid OrganizationId, string Owner, string Name, string FullName, string DefaultBranch, RepositoryVisibility Visibility, string WebUrl, IndexingRequestStatus IndexingStatus, DateTimeOffset RegisteredAtUtc, IndexingCheckpoint IndexingCheckpoint = IndexingCheckpoint.Queued, string? CommitSha = null, string? ErrorMessage = null);
+public sealed record RepositoryDto(Guid Id, Guid OrganizationId, string Owner, string Name, string FullName, string DefaultBranch, RepositoryVisibility Visibility, string WebUrl, IndexingRequestStatus IndexingStatus, DateTimeOffset RegisteredAtUtc, IndexingCheckpoint IndexingCheckpoint = IndexingCheckpoint.Queued, string? CommitSha = null, string? ErrorMessage = null, bool IsFavorite = false);
+public sealed record RepositoryPage(IReadOnlyCollection<RepositoryDto> Items, int Page, int PageSize, int TotalCount)
+{
+    public bool HasMore => Page * PageSize < TotalCount;
+}
 public sealed record IndexingRequestDto(Guid Id, Guid RepositoryId, IndexingRequestStatus Status, IndexingCheckpoint Checkpoint, int AttemptCount, string? CommitSha, string? ErrorCode, string? ErrorMessage, DateTimeOffset CreatedAtUtc, DateTimeOffset? CompletedAtUtc);
 public sealed record RepositorySourceFile(string Path, string Language, byte[] Content);
 public sealed record ParsedSymbol(string Name, string QualifiedName, SymbolKind Kind, int Line);
@@ -64,11 +68,16 @@ public interface IRepositoryRegistrationRepository
 
 public interface IRepositoryQueries
 {
-    Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken);
+    Task<RepositoryPage> ListAsync(Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken);
     Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken);
     Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
     Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryFavoriteStore
+{
+    Task SetAsync(Guid organizationId, Guid repositoryId, Guid userId, bool isFavorite, CancellationToken cancellationToken);
 }
 
 public interface IIndexingRequestRepository

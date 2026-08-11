@@ -73,6 +73,30 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 
     [Fact]
+    public async Task RepositoryList_IsPagedAndOrdersCurrentUsersFavoritesFirst()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Favorites {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var repositories = new List<RepositoryDto>();
+        for (var index = 0; index < 11; index++)
+        {
+            var response = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = $"https://github.com/acme/repository-{index:00}" });
+            repositories.Add((await response.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions))!);
+        }
+
+        var favorite = repositories[^1];
+        var favoriteResponse = await _client.PutAsJsonAsync($"/api/organizations/{organization!.Id}/repositories/{favorite.Id}/favorite", new { isFavorite = true });
+        favoriteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var page = await _client.GetFromJsonAsync<RepositoryPage>($"/api/organizations/{organization.Id}/repositories?page=1&pageSize=10", JsonOptions);
+        page!.TotalCount.Should().Be(11);
+        page.HasMore.Should().BeTrue();
+        page.Items.Should().HaveCount(10);
+        page.Items.First().Id.Should().Be(favorite.Id);
+        page.Items.First().IsFavorite.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task GetIndexingStatus_WhenCurrentUserIsNotMember_ReturnsNotFound()
     {
         var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/indexing");
@@ -168,6 +192,7 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IOrganizationQueries>();
             services.RemoveAll<IRepositoryRegistrationRepository>();
             services.RemoveAll<IRepositoryQueries>();
+            services.RemoveAll<IRepositoryFavoriteStore>();
             services.RemoveAll<IRepositoryProvider>();
             services.RemoveAll<IEmbeddingGenerator>();
             services.RemoveAll<IVectorStore>();
@@ -178,6 +203,7 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<IOrganizationQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryRegistrationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
+            services.AddSingleton<IRepositoryFavoriteStore>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryProvider, TestRepositoryProvider>();
             services.AddSingleton<IEmbeddingGenerator, TestEmbeddingGenerator>();
             services.AddSingleton<IVectorStore, TestVectorStore>();
@@ -202,10 +228,11 @@ public sealed class TestAuthenticationHandler(IOptionsMonitor<AuthenticationSche
     }
 }
 
-public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizationQueries, IRepositoryRegistrationRepository, IRepositoryQueries
+public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizationQueries, IRepositoryRegistrationRepository, IRepositoryQueries, IRepositoryFavoriteStore
 {
     private readonly List<Organization> _organizations = [];
     private readonly List<(RegisteredRepository Repository, RepositoryIndexingRequest Request)> _repositories = [];
+    private readonly HashSet<(Guid OrganizationId, Guid UserId, Guid RepositoryId)> _favorites = [];
     public Task AddAsync(Organization organization, CancellationToken cancellationToken) { _organizations.Add(organization); return Task.CompletedTask; }
     public Task<Organization?> GetWithMembersAsync(Guid organizationId, CancellationToken cancellationToken) => Task.FromResult(_organizations.SingleOrDefault(x => x.Id == organizationId));
     public Task<bool> SlugExistsAsync(string slug, CancellationToken cancellationToken) => Task.FromResult(_organizations.Any(x => x.Slug == slug));
@@ -221,7 +248,13 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task<bool> ExistsAsync(Guid organizationId, string owner, string name, CancellationToken cancellationToken) => Task.FromResult(_repositories.Any(x => x.Repository.OrganizationId == organizationId && x.Repository.Owner == owner && x.Repository.Name == name));
     public Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Any(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId));
     public Task AddAsync(RegisteredRepository repository, RepositoryIndexingRequest indexingRequest, CancellationToken cancellationToken) { _repositories.Add((repository, indexingRequest)); return Task.CompletedTask; }
-    public Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryDto>>(_repositories.Where(x => x.Repository.OrganizationId == organizationId).Select(x => new RepositoryDto(x.Repository.Id, x.Repository.OrganizationId, x.Repository.Owner, x.Repository.Name, x.Repository.FullName, x.Repository.DefaultBranch, x.Repository.Visibility, x.Repository.WebUrl, x.Request.Status, x.Repository.CreatedAtUtc)).ToArray());
+    public Task<RepositoryPage> ListAsync(Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        var repositories = _repositories.Where(x => x.Repository.OrganizationId == organizationId).OrderByDescending(x => _favorites.Contains((organizationId, userId, x.Repository.Id))).ThenBy(x => x.Repository.Owner).ThenBy(x => x.Repository.Name).ToArray();
+        var items = repositories.Skip((page - 1) * pageSize).Take(pageSize).Select(x => new RepositoryDto(x.Repository.Id, x.Repository.OrganizationId, x.Repository.Owner, x.Repository.Name, x.Repository.FullName, x.Repository.DefaultBranch, x.Repository.Visibility, x.Repository.WebUrl, x.Request.Status, x.Repository.CreatedAtUtc, IsFavorite: _favorites.Contains((organizationId, userId, x.Repository.Id)))).ToArray();
+        return Task.FromResult(new RepositoryPage(items, page, pageSize, repositories.Length));
+    }
+    public Task SetAsync(Guid organizationId, Guid repositoryId, Guid userId, bool isFavorite, CancellationToken cancellationToken) { if (isFavorite) _favorites.Add((organizationId, userId, repositoryId)); else _favorites.Remove((organizationId, userId, repositoryId)); return Task.CompletedTask; }
     public Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Where(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId).Select(x => new IndexingRequestDto(x.Request.Id, x.Request.RepositoryId, x.Request.Status, x.Request.Checkpoint, x.Request.AttemptCount, x.Request.CommitSha, x.Request.ErrorCode, x.Request.ErrorMessage, x.Request.CreatedAtUtc, x.Request.CompletedAtUtc)).FirstOrDefault());
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryEndpointDto>>([]);
     public Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryCapabilitiesDto(false, false, false, false, false, []));

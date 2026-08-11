@@ -16,6 +16,15 @@ export interface RegisteredRepository {
   commitSha?: string;
   errorMessage?: string;
   registeredAtUtc: string;
+  isFavorite: boolean;
+}
+
+export interface RepositoryPage {
+  items: RegisteredRepository[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  hasMore: boolean;
 }
 
 export interface RepositoryEndpoint {

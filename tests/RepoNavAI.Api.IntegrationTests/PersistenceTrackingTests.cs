@@ -63,4 +63,13 @@ public sealed class PersistenceTrackingTests
         entity.FindProperty("Question").Should().BeNull();
         entity.FindProperty("Answer").Should().BeNull();
     }
+
+    [Fact]
+    public void RepositoryFavoriteModel_EnforcesPerUserRepositoryUniqueness()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
+        using var dbContext = new AppDbContext(options);
+        var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryFavorite));
+        entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "OrganizationId", "UserId", "RepositoryId" }));
+    }
 }

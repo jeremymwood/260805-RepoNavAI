@@ -10,7 +10,8 @@ using RepoNavAI.Domain.Repositories;
 namespace RepoNavAI.Application.Repositories;
 
 public sealed record RegisterRepositoryCommand(Guid OrganizationId, string Url) : IRequest<RepositoryDto>;
-public sealed record ListRepositoriesQuery(Guid OrganizationId) : IRequest<IReadOnlyCollection<RepositoryDto>>;
+public sealed record ListRepositoriesQuery(Guid OrganizationId, int Page = 1, int PageSize = 10) : IRequest<RepositoryPage>;
+public sealed record SetRepositoryFavoriteCommand(Guid OrganizationId, Guid RepositoryId, bool IsFavorite) : IRequest;
 public sealed record GetIndexingStatusQuery(Guid OrganizationId, Guid RepositoryId) : IRequest<IndexingRequestDto>;
 public sealed record CancelIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
 public sealed record RetryIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
@@ -64,12 +65,24 @@ public sealed class RegisterRepositoryHandler(IOrganizationAccess access, IRepos
 }
 
 public sealed class ListRepositoriesHandler(IOrganizationAccess access, IRepositoryQueries queries, ICurrentUser currentUser)
-    : IRequestHandler<ListRepositoriesQuery, IReadOnlyCollection<RepositoryDto>>
+    : IRequestHandler<ListRepositoriesQuery, RepositoryPage>
 {
-    public async Task<IReadOnlyCollection<RepositoryDto>> Handle(ListRepositoriesQuery request, CancellationToken cancellationToken)
+    public async Task<RepositoryPage> Handle(ListRepositoriesQuery request, CancellationToken cancellationToken)
     {
         await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
-        return await queries.ListAsync(request.OrganizationId, cancellationToken);
+        if (request.Page < 1 || request.PageSize is < 1 or > 50) throw new ValidationException("Page must be positive and page size must be between 1 and 50.");
+        return await queries.ListAsync(request.OrganizationId, currentUser.UserId, request.Page, request.PageSize, cancellationToken);
+    }
+}
+
+public sealed class SetRepositoryFavoriteHandler(IOrganizationAccess access, IRepositoryQueries queries, IRepositoryFavoriteStore favorites, ICurrentUser currentUser)
+    : IRequestHandler<SetRepositoryFavoriteCommand>
+{
+    public async Task Handle(SetRepositoryFavoriteCommand request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        if (!await queries.ExistsAsync(request.OrganizationId, request.RepositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
+        await favorites.SetAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, request.IsFavorite, cancellationToken);
     }
 }
 

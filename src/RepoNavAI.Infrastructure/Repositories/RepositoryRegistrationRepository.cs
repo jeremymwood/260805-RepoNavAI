@@ -32,10 +32,14 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
 {
     private static readonly string[] SourceExtensions = [".cs", ".ts", ".tsx", ".js", ".jsx"];
     public Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => dbContext.RegisteredRepositories.AnyAsync(x => x.OrganizationId == organizationId && x.Id == repositoryId, cancellationToken);
-    public async Task<IReadOnlyCollection<RepositoryDto>> ListAsync(Guid organizationId, CancellationToken cancellationToken) =>
-        await dbContext.RegisteredRepositories.AsNoTracking()
-            .Where(repository => repository.OrganizationId == organizationId)
-            .OrderBy(repository => repository.Owner).ThenBy(repository => repository.Name)
+    public async Task<RepositoryPage> ListAsync(Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        var query = dbContext.RegisteredRepositories.AsNoTracking().Where(repository => repository.OrganizationId == organizationId);
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(repository => dbContext.RepositoryFavorites.Any(favorite => favorite.OrganizationId == organizationId && favorite.UserId == userId && favorite.RepositoryId == repository.Id))
+            .ThenBy(repository => repository.Owner).ThenBy(repository => repository.Name).ThenBy(repository => repository.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(repository => new RepositoryDto(
                 repository.Id,
                 repository.OrganizationId,
@@ -48,8 +52,11 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
                 repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.Status).First(), repository.CreatedAtUtc,
                 repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.Checkpoint).First(),
                 repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.CommitSha).First(),
-                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.ErrorMessage).First()))
+                repository.IndexingRequests.OrderByDescending(request => request.CreatedAtUtc).Select(request => request.ErrorMessage).First(),
+                dbContext.RepositoryFavorites.Any(favorite => favorite.OrganizationId == organizationId && favorite.UserId == userId && favorite.RepositoryId == repository.Id)))
             .ToArrayAsync(cancellationToken);
+        return new RepositoryPage(items, page, pageSize, totalCount);
+    }
 
     public async Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) =>
         await dbContext.RepositoryIndexingRequests.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId)
@@ -80,5 +87,18 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
         bool IsSource(string path) => SourceExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
         var representativePaths = paths.Where(IsSource).Concat(paths.Where(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase))).Take(5).ToArray();
         return new(hasChunks, paths.Any(IsSource), paths.Any(path => path.Contains("test", StringComparison.OrdinalIgnoreCase)), paths.Any(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)), hasEndpoints, representativePaths);
+    }
+}
+
+public sealed class RepositoryFavoriteStore(AppDbContext dbContext) : IRepositoryFavoriteStore
+{
+    public async Task SetAsync(Guid organizationId, Guid repositoryId, Guid userId, bool isFavorite, CancellationToken cancellationToken)
+    {
+        var existing = await dbContext.RepositoryFavorites.SingleOrDefaultAsync(
+            favorite => favorite.OrganizationId == organizationId && favorite.RepositoryId == repositoryId && favorite.UserId == userId,
+            cancellationToken);
+        if (isFavorite && existing is null) await dbContext.RepositoryFavorites.AddAsync(new RepositoryFavorite(organizationId, repositoryId, userId), cancellationToken);
+        if (!isFavorite && existing is not null) dbContext.RepositoryFavorites.Remove(existing);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 }

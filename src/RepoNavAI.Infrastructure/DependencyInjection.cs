@@ -65,6 +65,7 @@ public static class DependencyInjection
         });
         services.AddScoped<IRepositoryRegistrationRepository, RepositoryRegistrationRepository>();
         services.AddScoped<IRepositoryQueries, RepositoryQueries>();
+        services.AddScoped<IRepositoryFavoriteStore, RepositoryFavoriteStore>();
         services.AddOptions<IndexingOptions>().Bind(configuration.GetSection(IndexingOptions.SectionName))
             .Validate(x => x.PollSeconds is >= 1 and <= 60, "Indexing poll interval must be between 1 and 60 seconds.")
             .Validate(x => x.LeaseSeconds is >= 15 and <= 300, "Indexing lease must be between 15 and 300 seconds.")
