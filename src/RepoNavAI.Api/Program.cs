@@ -5,7 +5,6 @@ using RepoNavAI.Api.Authentication;
 using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application;
 using RepoNavAI.Infrastructure;
-using RepoNavAI.Infrastructure.Persistence;
 using Serilog;
 using System.Text.Json.Serialization;
 
@@ -40,7 +39,6 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health", new HealthCheckOptions());
 
-if (!app.Environment.IsEnvironment("Testing")) await app.Services.InitializeDatabaseAsync();
 await app.RunAsync();
 
 public partial class Program;

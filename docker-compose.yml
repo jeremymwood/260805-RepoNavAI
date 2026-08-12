@@ -29,7 +29,9 @@ services:
       OpenAI__ChatMaxOutputTokens: ${OPENAI_CHAT_MAX_OUTPUT_TOKENS:-1200}
       OpenAI__ChatMaximumContextCharacters: ${OPENAI_CHAT_MAX_CONTEXT_CHARACTERS:-32000}
       RepositoryChat__OrganizationDailyRequestLimit: ${REPOSITORY_CHAT_DAILY_LIMIT:-100}
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrator: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
       interval: 10s
@@ -51,12 +53,21 @@ services:
       OpenAI__EmbeddingDimensions: ${OPENAI_EMBEDDING_DIMENSIONS:-512}
     depends_on:
       postgres: { condition: service_healthy }
+      migrator: { condition: service_completed_successfully }
       api: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q '200 OK' <&3"]
       interval: 10s
       timeout: 5s
       retries: 10
+  migrator:
+    build: { context: ., dockerfile: src/RepoNavAI.Migrator/Dockerfile }
+    restart: "no"
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-reponav};Username=${POSTGRES_USER:-reponav};Password=${POSTGRES_PASSWORD}
+      Admin__Email: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}
+      Admin__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+    depends_on: { postgres: { condition: service_healthy } }
   web:
     build: { context: ., dockerfile: src/RepoNavAI.Web/Dockerfile }
     restart: unless-stopped
