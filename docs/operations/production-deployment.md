@@ -2,6 +2,8 @@
 
 This runbook turns [ADR-008](../architecture/ADR-008-production-hosting.md) into environment, promotion, recovery, and GitHub policy. It is the contract for the follow-up infrastructure and continuous-delivery work; it does not imply that Azure resources currently exist.
 
+The versioned foundation and its operator procedures are defined in [ADR-009](../architecture/ADR-009-bicep-infrastructure.md) and the [Azure foundation runbook](azure-foundation.md).
+
 ## Environment boundaries
 
 | Environment | Purpose | Promotion | Data and access |

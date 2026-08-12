@@ -13,6 +13,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compile Bicep templates
+        run: >-
+          docker run --rm
+          --volume "$PWD:/src"
+          --workdir /src
+          mcr.microsoft.com/azure-cli:2.76.0
+          az bicep build --file infra/bicep/main.bicep --stdout
+          > /dev/null
+      - name: Scan infrastructure configuration
+        run: >-
+          docker run --rm
+          --volume "$PWD:/src"
+          --workdir /src
+          bridgecrew/checkov:3.2.495
+          --directory infra/bicep
+          --framework bicep
+          --skip-check CKV_AZURE_109,CKV_AZURE_139,CKV_AZURE_166,CKV_AZURE_189
+          --compact
+          --quiet
+
   documentation:
     runs-on: ubuntu-latest
     timeout-minutes: 5
