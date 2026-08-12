@@ -100,7 +100,12 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri("https://api.github.com/"); client.DefaultRequestHeaders.UserAgent.ParseAdd("RepoNavAI/1.0"); client.Timeout = TimeSpan.FromMinutes(2);
         });
-        if (configuration.GetValue("Indexing:WorkerEnabled", true)) services.AddHostedService<RepositoryIndexingWorker>();
+        return services;
+    }
+
+    public static IServiceCollection AddRepositoryIndexingWorker(this IServiceCollection services)
+    {
+        services.AddHostedService<RepositoryIndexingWorker>();
         return services;
     }
 }
