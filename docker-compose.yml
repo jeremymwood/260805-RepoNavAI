@@ -35,9 +35,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+  worker:
+    build: { context: ., dockerfile: src/RepoNavAI.Worker/Dockerfile }
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-reponav};Username=${POSTGRES_USER:-reponav};Password=${POSTGRES_PASSWORD}
+      Jwt__Issuer: RepoNavAI
+      Jwt__Audience: RepoNavAI.Web
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
+      GitHub__AccessToken: ${GITHUB_ACCESS_TOKEN:-}
+      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      OpenAI__EmbeddingModel: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      OpenAI__EmbeddingDimensions: ${OPENAI_EMBEDDING_DIMENSIONS:-512}
+    depends_on:
+      postgres: { condition: service_healthy }
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
   web:
     build: { context: ., dockerfile: src/RepoNavAI.Web/Dockerfile }
     restart: unless-stopped
     ports: ["5173:8080"]
-    depends_on: { api: { condition: service_healthy } }
+    depends_on:
+      api: { condition: service_healthy }
+      worker: { condition: service_healthy }
 volumes: { postgres-data: {} }
