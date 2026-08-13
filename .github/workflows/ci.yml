@@ -37,6 +37,23 @@ jobs:
           --skip-check CKV_AZURE_109,CKV_AZURE_139,CKV_AZURE_166,CKV_AZURE_189
           --compact
           --quiet
+      - name: Validate GitHub Actions workflows
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          --workdir /repo
+          rhysd/actionlint:1.7.7
+      - name: Validate deployment shell scripts
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          --workdir /repo
+          koalaman/shellcheck:v0.10.0
+          scripts/deploy-azure.sh
+          scripts/rollback-azure.sh
+          scripts/test-deployment-scripts.sh
+      - name: Test deployment and rollback orchestration
+        run: bash scripts/test-deployment-scripts.sh
 
   documentation:
     runs-on: ubuntu-latest

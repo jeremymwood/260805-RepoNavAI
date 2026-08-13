@@ -1,0 +1,54 @@
+name: Promote production
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish-run-id:
+        description: Successful Publish containers run already deployed to staging
+        required: true
+        type: string
+      staging-run-id:
+        description: Successful Deploy staging run that tested the publish run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  verify-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-manifest-*
+          path: evidence/publish
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.publish-run-id }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: deployment-staging-*
+          path: evidence/staging
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.staging-run-id }}
+      - name: Verify staging tested the exact release
+        run: |
+          publish_commit="$(jq -er .commit evidence/publish/release-manifest.json)"
+          staging_commit="$(jq -er '.commit | select(. != null)' evidence/staging/deployment-record.json)"
+          staging_environment="$(jq -er .environment evidence/staging/deployment-record.json)"
+          test "$staging_environment" = staging
+          test "$publish_commit" = "$staging_commit"
+
+  production:
+    needs: verify-staging
+    uses: ./.github/workflows/_deploy-azure.yml
+    with:
+      environment: production
+      publish-run-id: ${{ inputs.publish-run-id }}
+    secrets: inherit

@@ -24,10 +24,12 @@ Create GitHub environments named `staging` and `production`:
 - Keep `main` protected with pull requests and the backend, frontend, and container status checks. Block force pushes and branch deletion; dismiss stale approvals after material changes.
 - Pin third-party GitHub Actions to full commit SHAs and grant each workflow only the permissions it needs. Deployment workflows require `id-token: write` and `contents: read`; package publication separately requires `packages: write`.
 
+Configure these non-secret variables independently in both GitHub environments: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_CONTAINER_REGISTRY`, `AZURE_WEB_APP`, `AZURE_API_APP`, `AZURE_WORKER_APP`, `AZURE_MIGRATION_JOB`, and `APPLICATION_URL`. The federated identity subject must match the environment name exactly. Production requires reviewers and must prevent self-review when the GitHub plan supports it.
+
 ## Promotion pipeline
 
 1. Pull request CI restores, builds, tests, lints, and builds both containers.
-2. Merge to `main` publishes API, web, and worker images tagged with the commit SHA and records their immutable digests.
+2. Merge to `main` publishes API, web, worker, and migrator images tagged with the full commit SHA. The publish workflow resolves their registry digests and stores a release-manifest artifact.
 3. Staging deployment authenticates through OIDC, applies IaC drift-safe changes, runs the migration job, creates new revisions, and executes smoke tests.
 4. Production waits for environment approval and promotes the exact staging-tested digests—never a mutable `main` tag.
 5. The production migration job runs once. New revisions receive no traffic until readiness checks pass.
@@ -35,6 +37,8 @@ Create GitHub environments named `staging` and `production`:
 7. Record commit, digests, migration, approver, revisions, and smoke-test result in the GitHub deployment record.
 
 The pipeline must be concurrency-locked per environment so two database migrations or production promotions cannot overlap.
+
+The staging workflow starts only after a successful `Publish containers` run on `main`. Production is manually dispatched with both the publish run ID and the successful staging deployment run ID. It compares the release-manifest commit with the staging deployment record before requesting production approval, preventing an untested digest from being promoted.
 
 ## Migration rules
 
@@ -66,6 +70,15 @@ Alerts need an owner, severity, actionable threshold, and linked runbook. High-c
 
 For an application regression, stop traffic promotion and restore 100 percent traffic to the previous healthy revision. Because database migrations are backward-compatible, the previous revision remains usable. Pause the worker if a new job format or write path is implicated.
 
+Every deployment uploads a record containing the commit, migration execution, new revisions, and prior web/API revisions. Run the `Roll back Azure environment` workflow with the protected environment and failed deployment run ID. The equivalent audited operator command is:
+
+```bash
+AZURE_RESOURCE_GROUP=rg-reponav-prod AZURE_WEB_APP=reponav-prod-web AZURE_API_APP=reponav-prod-api \
+  bash scripts/rollback-azure.sh deployment-record.json
+```
+
+The rollback changes traffic only; it never executes a down migration. Validate `/health`, login, and the affected user journey immediately afterward. Worker rollback is a deliberate image update or scale-to-zero action because it has no HTTP traffic split.
+
 For data loss or corruption:
 
 1. Stop affected writers and preserve logs/evidence.
@@ -79,6 +92,8 @@ Retain automated PostgreSQL backups for at least 14 days in production. Test an 
 ## Domain and TLS
 
 Use a product-owned DNS zone. Map the customer-facing hostname to the web Container App and use a managed certificate with automatic renewal. The API remains internal. Document DNS ownership, validation records, certificate status, and an emergency renewal owner. Add Azure Front Door and WAF only when edge security, global routing, or availability requirements justify their cost and complexity.
+
+Custom-domain automation remains disabled until the product-owned hostname and DNS-zone ownership are supplied. Do not invent a domain or emit a certificate-validation record before that decision.
 
 ## Release readiness checklist
 
