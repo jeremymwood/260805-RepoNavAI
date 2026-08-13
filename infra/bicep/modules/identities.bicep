@@ -16,6 +16,12 @@ resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-3
   tags: tags
 }
 
+resource webIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+  name: '${baseName}-web'
+  location: location
+  tags: tags
+}
+
 resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: '${baseName}-worker'
   location: location
@@ -61,4 +67,9 @@ resource deploymentRbacAdministrator 'Microsoft.Authorization/roleAssignments@20
 }
 
 output deploymentIdentityClientId string = deploymentIdentity.properties.clientId
-output runtimePrincipalIds array = [apiIdentity.properties.principalId, workerIdentity.properties.principalId, migrationIdentity.properties.principalId]
+output registryPrincipalIds array = [webIdentity.properties.principalId, apiIdentity.properties.principalId, workerIdentity.properties.principalId, migrationIdentity.properties.principalId]
+output secretPrincipalIds array = [apiIdentity.properties.principalId, workerIdentity.properties.principalId, migrationIdentity.properties.principalId]
+output webIdentityId string = webIdentity.id
+output apiIdentityId string = apiIdentity.id
+output workerIdentityId string = workerIdentity.id
+output migrationIdentityId string = migrationIdentity.id

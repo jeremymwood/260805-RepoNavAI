@@ -26,6 +26,8 @@ Create GitHub environments named `staging` and `production`:
 
 Configure these non-secret variables independently in both GitHub environments: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_CONTAINER_REGISTRY`, `AZURE_WEB_APP`, `AZURE_API_APP`, `AZURE_WORKER_APP`, `AZURE_MIGRATION_JOB`, and `APPLICATION_URL`. The federated identity subject must match the environment name exactly. Production requires reviewers and must prevent self-review when the GitHub plan supports it.
 
+The Bicep foundation emits the resource names used by these variables and creates the runtime identities, ACR pull assignments, Key Vault references, health probes, scaling limits, multiple-revision web/API apps, single-revision worker, and manual migration job. See the [Azure foundation runbook](azure-foundation.md) for the output mapping and secure bootstrap inputs.
+
 ## Promotion pipeline
 
 1. Pull request CI restores, builds, tests, lints, and builds both containers.

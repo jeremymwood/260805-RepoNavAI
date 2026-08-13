@@ -8,6 +8,16 @@ param githubRepository string = 'jeremymwood/260805-RepoNavAI'
 param alertEmail string
 @secure()
 param postgresAdministratorPassword string
+@secure()
+param jwtSigningKey string
+param administratorEmail string
+@secure()
+param administratorPassword string
+@secure()
+param githubAccessToken string = ''
+@secure()
+param openAIApiKey string = ''
+param applicationUrl string
 param postgresSkuName string
 param postgresTier string
 param postgresStorageSizeGb int
@@ -41,6 +51,12 @@ module foundation 'modules/foundation.bicep' = {
     githubRepository: githubRepository
     alertEmail: alertEmail
     postgresAdministratorPassword: postgresAdministratorPassword
+    jwtSigningKey: jwtSigningKey
+    administratorEmail: administratorEmail
+    administratorPassword: administratorPassword
+    githubAccessToken: githubAccessToken
+    openAIApiKey: openAIApiKey
+    applicationUrl: applicationUrl
     postgresSkuName: postgresSkuName
     postgresTier: postgresTier
     postgresStorageSizeGb: postgresStorageSizeGb
@@ -57,3 +73,8 @@ output registryName string = foundation.outputs.registryName
 output keyVaultName string = foundation.outputs.keyVaultName
 output postgresServerName string = foundation.outputs.postgresServerName
 output deploymentIdentityClientId string = foundation.outputs.deploymentIdentityClientId
+output webAppName string = foundation.outputs.webAppName
+output apiAppName string = foundation.outputs.apiAppName
+output workerAppName string = foundation.outputs.workerAppName
+output migrationJobName string = foundation.outputs.migrationJobName
+output applicationHostname string = foundation.outputs.applicationHostname
