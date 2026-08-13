@@ -1,0 +1,50 @@
+name: Roll back Azure environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected environment to roll back
+        required: true
+        type: choice
+        options: [staging, production]
+      deployment-run-id:
+        description: Deployment run whose recorded previous revisions should be restored
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: azure-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: deployment-${{ inputs.environment }}-*
+          path: rollback
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.deployment-run-id }}
+      - name: Verify record environment
+        run: test "$(jq -er .environment rollback/deployment-record.json)" = "${{ inputs.environment }}"
+      - uses: azure/login@858f4093d287a904987dfd22abd163280f939550 # v3.0.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Restore previous healthy revisions
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_WEB_APP: ${{ vars.AZURE_WEB_APP }}
+          AZURE_API_APP: ${{ vars.AZURE_API_APP }}
+        run: bash scripts/rollback-azure.sh rollback/deployment-record.json

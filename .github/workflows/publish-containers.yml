@@ -49,7 +49,7 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/reponav-ai-${{ matrix.name }}
           tags: |
             type=raw,value=main
-            type=sha,prefix=sha-
+            type=raw,value=sha-${{ github.sha }}
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -60,3 +60,39 @@ jobs:
           cache-from: type=gha,scope=publish-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=publish-${{ matrix.name }}
           provenance: mode=max
+
+  manifest:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Capture immutable image digests
+        env:
+          OWNER: ${{ github.repository_owner }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir release
+          manifest='{}'
+          for component in api web worker migrator; do
+            image="ghcr.io/${OWNER}/reponav-ai-${component}:sha-${COMMIT_SHA}"
+            digest="$(docker buildx imagetools inspect "$image" | awk '/^Digest:/ { print $2; exit }')"
+            test "${digest#sha256:}" != "$digest"
+            manifest="$(jq --arg component "$component" --arg image "${image%:*}@${digest}" '.images[$component] = $image' <<<"$manifest")"
+          done
+          jq --arg commit "$COMMIT_SHA" --arg runId "$GITHUB_RUN_ID" \
+            '.schemaVersion = 1 | .commit = $commit | .publishRunId = $runId' \
+            <<<"$manifest" > release/release-manifest.json
+          jq -e '.images | keys == ["api", "migrator", "web", "worker"]' release/release-manifest.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-manifest-${{ github.sha }}
+          path: release/release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
