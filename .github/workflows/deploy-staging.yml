@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   staging:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && vars.STAGING_DEPLOYMENT_ENABLED == 'true'
     uses: ./.github/workflows/_deploy-azure.yml
     with:
       environment: staging
