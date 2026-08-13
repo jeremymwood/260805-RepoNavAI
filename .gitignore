@@ -13,3 +13,10 @@
 coverage/
 .dotnet9/
 .tools/
+
+# Azure/Bicep local outputs
+infra/bicep/main.json
+infra/bicep/modules/*.json
+infra/.generated/
+release/
+*.whatif.json

@@ -11,7 +11,7 @@ The Bicep entry point in `infra/bicep/main.bicep` provisions the environment-iso
 
 Register `Microsoft.App`, `Microsoft.ContainerRegistry`, `Microsoft.DBforPostgreSQL`, `Microsoft.Insights`, `Microsoft.KeyVault`, `Microsoft.ManagedIdentity`, `Microsoft.Network`, and `Microsoft.OperationalInsights`. The first deployment creates the environment-scoped GitHub identity and its resource-group-scoped Contributor and Role Based Access Control Administrator assignments. These allow the identity to maintain the foundation and its declared runtime assignments without subscription-wide access. Do not give the GitHub identity subscription Owner or broaden either assignment beyond its environment resource group.
 
-Set the environment's real operator email in its `.bicepparam` file before review. Supply the database bootstrap password only through `POSTGRES_ADMINISTRATOR_PASSWORD`; rotate it in the generated Key Vault after initial deployment and before its declared expiration, and never place it in shell history, parameter files, Actions output, or repository secrets.
+Set the environment's real operator email and `applicationUrl` in its `.bicepparam` file before review. Supply `POSTGRES_ADMINISTRATOR_PASSWORD`, `JWT_SIGNING_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `GITHUB_ACCESS_TOKEN`, and `OPENAI_API_KEY` through the invoking process environment. The values are written to Key Vault and referenced by managed identity; they must never be committed, printed in Actions output, or passed as plain command arguments. Rotate bootstrap credentials after initial deployment and before their declared expiration.
 
 ## Validate and plan
 
@@ -19,7 +19,8 @@ From an authenticated, non-production shell:
 
 ```powershell
 az bicep build --file infra/bicep/main.bicep
-$env:POSTGRES_ADMINISTRATOR_PASSWORD = Read-Host -AsSecureString
+$env:POSTGRES_ADMINISTRATOR_PASSWORD = Read-Host -MaskInput
+# Set the remaining secure inputs listed above in the same protected session.
 az deployment sub validate --location centralus --template-file infra/bicep/main.bicep --parameters infra/bicep/environments/staging.bicepparam
 az deployment sub what-if --location centralus --template-file infra/bicep/main.bicep --parameters infra/bicep/environments/staging.bicepparam --validation-level Provider
 ```
@@ -34,7 +35,21 @@ Run the same commands with `production.bicepparam` only from the protected produ
 az deployment sub create --name reponav-staging-foundation --location centralus --template-file infra/bicep/main.bicep --parameters infra/bicep/environments/staging.bicepparam
 ```
 
-Apply staging first. Verify private PostgreSQL DNS from the Container Apps network, TLS 1.2, the `VECTOR` allow-list, backup retention, Key Vault RBAC, ACR pull access, telemetry ingestion, budget recipients, and alert action-group delivery. Production requires a separate reviewed plan and GitHub environment approval.
+Apply staging first. The initial runtime definitions create bootstrap revisions for the web, API, and worker plus a manual migration job; the release workflow replaces those public bootstrap images with immutable ACR digests. Verify private PostgreSQL DNS from the Container Apps network, TLS 1.2, the `VECTOR` allow-list, backup retention, Key Vault references, per-service managed identities, ACR pull access, internal API discovery, telemetry ingestion, budget recipients, and alert action-group delivery. Production requires a separate reviewed plan and GitHub environment approval.
+
+Copy the deployment outputs into the matching GitHub environment variables:
+
+| Output | GitHub environment variable |
+| --- | --- |
+| `resourceGroupName` | `AZURE_RESOURCE_GROUP` |
+| `registryName` | `AZURE_CONTAINER_REGISTRY` |
+| `webAppName` | `AZURE_WEB_APP` |
+| `apiAppName` | `AZURE_API_APP` |
+| `workerAppName` | `AZURE_WORKER_APP` |
+| `migrationJobName` | `AZURE_MIGRATION_JOB` |
+| `deploymentIdentityClientId` | `AZURE_CLIENT_ID` |
+
+Also configure `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and `APPLICATION_URL`. The environment's `applicationUrl` Bicep parameter and GitHub `APPLICATION_URL` must describe the same externally reachable HTTPS origin. Until a custom domain is approved, use the generated web Container App hostname from `applicationHostname`.
 
 ## Drift
 

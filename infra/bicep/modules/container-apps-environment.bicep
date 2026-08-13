@@ -19,3 +19,4 @@ resource environment 'Microsoft.App/managedEnvironments@2025-07-01' = {
 }
 
 output name string = environment.name
+output id string = environment.id
