@@ -64,6 +64,7 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(15);
         });
         services.AddScoped<IRepositoryRegistrationRepository, RepositoryRegistrationRepository>();
+        services.AddScoped<IRepositoryRemovalStore, RepositoryRemovalStore>();
         services.AddScoped<IRepositoryQueries, RepositoryQueries>();
         services.AddScoped<IRepositoryFavoriteStore, RepositoryFavoriteStore>();
         services.AddOptions<IndexingOptions>().Bind(configuration.GetSection(IndexingOptions.SectionName))

@@ -28,6 +28,29 @@ public sealed class RepositoryRegistrationRepository(AppDbContext dbContext) : I
     }
 }
 
+public sealed class RepositoryRemovalStore(AppDbContext dbContext) : IRepositoryRemovalStore
+{
+    public async Task RemoveAsync(Guid organizationId, Guid repositoryId, Guid actorUserId, string confirmation, DateTimeOffset removedAtUtc, CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var repository = await dbContext.RegisteredRepositories
+            .FromSqlInterpolated($"SELECT * FROM reponav.\"RegisteredRepositories\" WHERE \"OrganizationId\" = {organizationId} AND \"Id\" = {repositoryId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("Repository was not found.");
+
+        if (!string.Equals(repository.FullName, confirmation, StringComparison.OrdinalIgnoreCase))
+            throw new FluentValidation.ValidationException($"Enter {repository.FullName} to confirm repository removal.");
+
+        await dbContext.RepositoryIndexingRequests
+            .Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId && (x.Status == IndexingRequestStatus.Pending || x.Status == IndexingRequestStatus.Processing))
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.CancellationRequestedAtUtc, removedAtUtc), cancellationToken);
+        await dbContext.RepositoryRemovalAudits.AddAsync(new RepositoryRemovalAudit(organizationId, repositoryId, actorUserId, repository.Provider, repository.Owner, repository.Name, removedAtUtc), cancellationToken);
+        dbContext.RegisteredRepositories.Remove(repository);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+}
+
 public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueries
 {
     private static readonly string[] SourceExtensions = [".cs", ".ts", ".tsx", ".js", ".jsx"];

@@ -72,4 +72,32 @@ public sealed class PersistenceTrackingTests
         var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryFavorite));
         entity!.GetIndexes().Should().Contain(index => index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[] { "OrganizationId", "UserId", "RepositoryId" }));
     }
+
+    [Fact]
+    public void RepositoryRemovalAudit_IsMetadataOnlyAndSurvivesRepositoryDeletion()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
+        using var dbContext = new AppDbContext(options);
+        var entity = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RepositoryRemovalAudit));
+
+        entity.Should().NotBeNull();
+        entity!.GetForeignKeys().Should().BeEmpty();
+        entity.FindProperty("WebUrl").Should().BeNull();
+        entity.FindProperty("SourceContent").Should().BeNull();
+        entity.GetIndexes().Should().Contain(index => index.Properties.Select(property => property.Name).SequenceEqual(new[] { "OrganizationId", "RemovedAtUtc" }));
+    }
+
+    [Fact]
+    public void RepositoryOwnedData_CascadesFromRegisteredRepository()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql("Host=localhost;Database=tracking-test", postgres => postgres.UseVector()).Options;
+        using var dbContext = new AppDbContext(options);
+        var repositoryType = dbContext.Model.FindEntityType(typeof(RepoNavAI.Domain.Repositories.RegisteredRepository));
+        var dependents = dbContext.Model.GetEntityTypes().SelectMany(entity => entity.GetForeignKeys())
+            .Where(key => key.PrincipalEntityType == repositoryType)
+            .ToDictionary(key => key.DeclaringEntityType.ClrType.Name, key => key.DeleteBehavior);
+
+        foreach (var dependent in new[] { "RepositoryFavorite", "RepositoryIndexingRequest", "RepositorySnapshot", "RepositoryChatSession", "RepositoryOrientationPlan" })
+            dependents[dependent].Should().Be(DeleteBehavior.Cascade);
+    }
 }

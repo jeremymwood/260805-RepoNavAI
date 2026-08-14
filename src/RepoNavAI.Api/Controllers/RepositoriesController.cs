@@ -45,6 +45,13 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     [HttpPost("{repositoryId:guid}/indexing/reindex")]
     public async Task<IActionResult> Reindex(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new ReindexRepositoryCommand(organizationId, repositoryId), cancellationToken); return Accepted(); }
 
+    [HttpDelete("{repositoryId:guid}")]
+    public async Task<IActionResult> Remove(Guid organizationId, Guid repositoryId, RemoveRepositoryRequest request, CancellationToken cancellationToken)
+    {
+        await sender.Send(new RemoveRepositoryCommand(organizationId, repositoryId, request.Confirmation), cancellationToken);
+        return NoContent();
+    }
+
     [HttpGet("{repositoryId:guid}/endpoints")]
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpoints(Guid organizationId, Guid repositoryId, [FromQuery] string? method, [FromQuery] string? search, [FromQuery] bool? requiresAuthorization, CancellationToken cancellationToken) =>
         sender.Send(new ListRepositoryEndpointsQuery(organizationId, repositoryId, method, search, requiresAuthorization), cancellationToken);
@@ -118,6 +125,7 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
 }
 
 public sealed record RegisterRepositoryRequest(string Url);
+public sealed record RemoveRepositoryRequest(string Confirmation);
 public sealed record SetRepositoryFavoriteRequest(bool IsFavorite);
 public sealed record RepositoryChatRequest(string Question);
 public sealed record CreateOrientationPlanRequest(RepoNavAI.Domain.Repositories.OrientationRole Role, RepoNavAI.Domain.Repositories.OrientationExperience Experience, RepoNavAI.Domain.Repositories.OrientationFocus Focus, int TimeBudgetMinutes, string? Objective);

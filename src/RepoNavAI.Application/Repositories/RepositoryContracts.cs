@@ -66,6 +66,11 @@ public interface IRepositoryRegistrationRepository
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
+public interface IRepositoryRemovalStore
+{
+    Task RemoveAsync(Guid organizationId, Guid repositoryId, Guid actorUserId, string confirmation, DateTimeOffset removedAtUtc, CancellationToken cancellationToken);
+}
+
 public interface IRepositoryQueries
 {
     Task<RepositoryPage> ListAsync(Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken);

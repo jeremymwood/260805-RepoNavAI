@@ -174,6 +174,42 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
         repository!.FullName.Should().Be("acme/platform");
         repository.IndexingStatus.Should().Be(IndexingRequestStatus.Pending);
     }
+
+    [Fact]
+    public async Task RemoveRepository_WithExactConfirmation_RemovesItAndAllowsReregistration()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Removal {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var registeredResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/removable" });
+        var repository = await registeredResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+
+        var removal = await _client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/organizations/{organization.Id}/repositories/{repository!.Id}") { Content = JsonContent.Create(new { confirmation = repository.FullName }) });
+
+        removal.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _client.GetFromJsonAsync<RepositoryPage>($"/api/organizations/{organization.Id}/repositories", JsonOptions))!.Items.Should().BeEmpty();
+        (await _client.PostAsJsonAsync($"/api/organizations/{organization.Id}/repositories", new { url = "https://github.com/acme/removable" })).StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task RemoveRepository_WithWrongConfirmation_ReturnsBadRequestAndKeepsRepository()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Removal confirmation {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var registeredResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/keep-me" });
+        var repository = await registeredResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+
+        var removal = await _client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/organizations/{organization.Id}/repositories/{repository!.Id}") { Content = JsonContent.Create(new { confirmation = "wrong/name" }) });
+
+        removal.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await _client.GetFromJsonAsync<RepositoryPage>($"/api/organizations/{organization.Id}/repositories", JsonOptions))!.Items.Should().ContainSingle(x => x.Id == repository.Id);
+    }
+
+    [Fact]
+    public async Task RemoveRepository_FromAnotherTenant_ReturnsNotFound()
+    {
+        var removal = await _client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}") { Content = JsonContent.Create(new { confirmation = "acme/repository" }) });
+        removal.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }
 
 public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
@@ -193,6 +229,7 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IRepositoryRegistrationRepository>();
             services.RemoveAll<IRepositoryQueries>();
             services.RemoveAll<IRepositoryFavoriteStore>();
+            services.RemoveAll<IRepositoryRemovalStore>();
             services.RemoveAll<IRepositoryProvider>();
             services.RemoveAll<IEmbeddingGenerator>();
             services.RemoveAll<IVectorStore>();
@@ -204,6 +241,7 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<IRepositoryRegistrationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryFavoriteStore>(provider => provider.GetRequiredService<TestOrganizationStore>());
+            services.AddSingleton<IRepositoryRemovalStore>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IRepositoryProvider, TestRepositoryProvider>();
             services.AddSingleton<IEmbeddingGenerator, TestEmbeddingGenerator>();
             services.AddSingleton<IVectorStore, TestVectorStore>();
@@ -228,7 +266,7 @@ public sealed class TestAuthenticationHandler(IOptionsMonitor<AuthenticationSche
     }
 }
 
-public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizationQueries, IRepositoryRegistrationRepository, IRepositoryQueries, IRepositoryFavoriteStore
+public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizationQueries, IRepositoryRegistrationRepository, IRepositoryQueries, IRepositoryFavoriteStore, IRepositoryRemovalStore
 {
     private readonly List<Organization> _organizations = [];
     private readonly List<(RegisteredRepository Repository, RepositoryIndexingRequest Request)> _repositories = [];
@@ -255,6 +293,13 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
         return Task.FromResult(new RepositoryPage(items, page, pageSize, repositories.Length));
     }
     public Task SetAsync(Guid organizationId, Guid repositoryId, Guid userId, bool isFavorite, CancellationToken cancellationToken) { if (isFavorite) _favorites.Add((organizationId, userId, repositoryId)); else _favorites.Remove((organizationId, userId, repositoryId)); return Task.CompletedTask; }
+    public Task RemoveAsync(Guid organizationId, Guid repositoryId, Guid actorUserId, string confirmation, DateTimeOffset removedAtUtc, CancellationToken cancellationToken)
+    {
+        var item = _repositories.SingleOrDefault(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId);
+        if (item.Repository is null) throw new RepoNavAI.Application.Common.Exceptions.NotFoundException("Repository was not found.");
+        if (!string.Equals(item.Repository.FullName, confirmation, StringComparison.OrdinalIgnoreCase)) throw new FluentValidation.ValidationException($"Enter {item.Repository.FullName} to confirm repository removal.");
+        _repositories.Remove(item); _favorites.RemoveWhere(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId); return Task.CompletedTask;
+    }
     public Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Where(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId).Select(x => new IndexingRequestDto(x.Request.Id, x.Request.RepositoryId, x.Request.Status, x.Request.Checkpoint, x.Request.AttemptCount, x.Request.CommitSha, x.Request.ErrorCode, x.Request.ErrorMessage, x.Request.CreatedAtUtc, x.Request.CompletedAtUtc)).FirstOrDefault());
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryEndpointDto>>([]);
     public Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryCapabilitiesDto(false, false, false, false, false, []));
