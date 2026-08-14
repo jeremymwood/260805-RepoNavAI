@@ -76,6 +76,7 @@ jobs:
       - run: dotnet test RepoNavAI.sln --configuration Release --no-build
   frontend:
     runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 15
     defaults: { run: { working-directory: src/RepoNavAI.Web } }
     steps:
@@ -84,7 +85,9 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: src/RepoNavAI.Web/package-lock.json }
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build
+      - run: npm run test:e2e
 
   containers:
     runs-on: ubuntu-latest

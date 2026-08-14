@@ -31,7 +31,7 @@ export function RepositoryCard({ repository, selected, onCancel, onRetry, onExpl
       <IndexingStatusBadge status={repository.indexingStatus}/>
       <span className="inline-flex min-w-0 items-center gap-1 text-xs text-slate-500">
         <AppIcon icon={repository.visibility === 'Private' ? LockKeyhole : GitBranch} size="xs"/>
-        {repository.visibility} · <span className="break-all">{repository.defaultBranch}</span>{repository.commitSha && <span className="text-slate-400">· {repository.commitSha.slice(0, 8)}</span>}
+        {repository.visibility} · <span className="break-all">{repository.defaultBranch}</span>{repository.commitSha && <span className="text-slate-500">· {repository.commitSha.slice(0, 8)}</span>}
       </span>
     </div>
     {repository.errorMessage && <p className="mt-3 break-words pr-8 text-xs font-medium leading-5 text-red-600">{repository.errorMessage}</p>}

@@ -30,5 +30,5 @@ export function useTheme() { const value = useContext(ThemeContext); if (!value)
 
 export function ThemeControl() {
   const { preference, setPreference } = useTheme();
-  return <label className="field">Theme<select className="h-11 rounded-xl border border-slate-200 bg-white px-3 font-normal text-ink outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100" value={preference} onChange={event => setPreference(event.target.value as ThemePreference)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><span className="text-xs font-normal text-slate-500">System follows your operating-system appearance while RepoNavAI is open.</span></label>;
+  return <label className="field">Theme<select value={preference} onChange={event => setPreference(event.target.value as ThemePreference)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><span className="text-xs font-normal text-slate-500">System follows your operating-system appearance while RepoNavAI is open.</span></label>;
 }
