@@ -31,7 +31,7 @@ export function RepositoryPanel({ organizationId, initialVisibleCount = pageSize
   const hiddenCount = Math.max(0, totalCount - visibleRepositories.length);
   function setDisclosure(next: boolean) { const params = new URLSearchParams(searchParams); if (next) params.set('repositories', 'all'); else params.delete('repositories'); setSearchParams(params, { replace: true }); setExpanded(next); }
   async function showMore() { setDisclosure(true); if (loaded.length < totalCount) await repositories.fetchNextPage(); }
-  function explore(repositoryId: string) { navigate(`/repositories/${repositoryId}`, { state: { returnTo: `${location.pathname}${location.search}#repositories` } }); }
+  function explore(repositoryId: string) { navigate(`/repositories/${repositoryId}`, { state: { returnTo: `${location.pathname}${location.search}#repositories`, focusAnalysis: true } }); }
 
   return <section id="repositories" className="panel mt-8 scroll-mt-28">
     <div className="panel-header"><span className="panel-icon"><AppIcon icon={Github} size="lg"/></span><div className="min-w-0"><p className="font-semibold text-ink">Repositories</p><p className="text-sm text-slate-500">Register a GitHub repository and queue it for analysis.</p></div></div>
