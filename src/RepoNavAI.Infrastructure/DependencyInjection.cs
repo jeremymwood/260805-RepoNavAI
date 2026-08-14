@@ -71,6 +71,11 @@ public static class DependencyInjection
             .Validate(x => x.PollSeconds is >= 1 and <= 60, "Indexing poll interval must be between 1 and 60 seconds.")
             .Validate(x => x.LeaseSeconds is >= 15 and <= 300, "Indexing lease must be between 15 and 300 seconds.")
             .Validate(x => x.HeartbeatSeconds >= 1 && x.HeartbeatSeconds * 3 <= x.LeaseSeconds, "Indexing heartbeat must run at least three times per lease.")
+            .Validate(x => x.MaxAttempts is >= 1 and <= 10, "Indexing attempts must be between 1 and 10.")
+            .Validate(x => x.MaximumFiles > 0 && x.MaximumArchiveEntries >= x.MaximumFiles, "Archive entries must be at least the supported-file limit.")
+            .Validate(x => x.MaximumFileBytes > 0 && x.MaximumSnapshotBytes >= x.MaximumFileBytes, "Snapshot bytes must be at least the per-file limit.")
+            .Validate(x => x.MaximumDownloadBytes > 0 && x.MaximumExpandedBytes >= x.MaximumSnapshotBytes, "Expanded bytes must be at least the supported snapshot limit.")
+            .Validate(x => x.AcquisitionTimeoutSeconds is >= 10 and <= 3600, "Archive acquisition timeout must be between 10 and 3600 seconds.")
             .ValidateOnStart();
         services.AddScoped<IndexingQueueStore>();
         services.AddScoped<IIndexingRequestRepository>(provider => provider.GetRequiredService<IndexingQueueStore>());

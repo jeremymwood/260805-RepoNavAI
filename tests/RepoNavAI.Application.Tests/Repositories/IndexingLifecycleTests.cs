@@ -23,6 +23,20 @@ public sealed class IndexingLifecycleTests
     }
 
     [Fact]
+    public void DeterministicFailureStopsAfterCurrentAttempt()
+    {
+        var job = new RepositoryIndexingRequest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()); var now = DateTimeOffset.UtcNow;
+        job.Start(now, TimeSpan.FromMinutes(1), Guid.NewGuid());
+
+        job.Fail("ARCHIVE_MALFORMED", "The archive is malformed.", now, job.AttemptCount);
+
+        job.Status.Should().Be(IndexingRequestStatus.Failed);
+        job.AttemptCount.Should().Be(1);
+        job.ErrorCode.Should().Be("ARCHIVE_MALFORMED");
+        job.ErrorMessage.Should().Be("The archive is malformed.");
+    }
+
+    [Fact]
     public void LeaseRenewal_RequiresCurrentOwnerAndUnexpiredProcessingLease()
     {
         var now = DateTimeOffset.UtcNow; var owner = Guid.NewGuid();

@@ -87,6 +87,9 @@ Useful configuration keys:
 | `OpenAI__ChatMaximumContextCharacters` | Maximum retrieved source characters supplied to one answer; defaults to 32,000 |
 | `RepositoryChat__OrganizationDailyRequestLimit` | Rolling 24-hour request cap per organization; defaults to 100 |
 | `Indexing__LeaseSeconds`, `Indexing__HeartbeatSeconds` | Worker ownership and recovery timing; defaults to 45 and 10 seconds |
+| `Indexing__MaximumDownloadBytes`, `Indexing__MaximumExpandedBytes`, `Indexing__MaximumArchiveEntries` | Compressed, expanded, and entry-count archive safety bounds |
+| `Indexing__MaximumFiles`, `Indexing__MaximumFileBytes`, `Indexing__MaximumSnapshotBytes` | Supported-source file count, per-file, and retained snapshot bounds |
+| `Indexing__AcquisitionTimeoutSeconds` | End-to-end commit resolution, download, and archive traversal timeout |
 
 ## Docker Compose
 
