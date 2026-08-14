@@ -36,13 +36,21 @@ describe('RepositoryCard', () => {
     expect(markup).toContain('motion-reduce:animate-none');
   });
 
-  it('uses an animated cancel control while indexing is running', () => {
+  it('exposes the real checkpoint and a visible cancel action while indexing is running', () => {
     const processing = { ...repository, indexingStatus: 'Processing' as const, indexingCheckpoint: 'Parsing' as const };
     const markup = renderToStaticMarkup(<RepositoryCard repository={processing} selected={false} onCancel={vi.fn()} onRetry={vi.fn()} onExplore={vi.fn()} onFavorite={vi.fn()}/>);
     expect(markup).toContain(`aria-label="Cancel indexing ${repository.fullName}"`);
-    expect(markup).toContain('animate-spin');
-    expect(markup).toContain('group-hover:hidden');
-    expect(markup).not.toContain('>Cancel<');
+    expect(markup).toContain('Parsing');
+    expect(markup).toContain('Cancel</button>');
+    expect(markup).not.toMatch(/\d+%/);
+  });
+
+  it('disables cancellation immediately while the stop request is pending', () => {
+    const processing = { ...repository, indexingStatus: 'Processing' as const, indexingCheckpoint: 'Parsing' as const };
+    const markup = renderToStaticMarkup(<RepositoryCard repository={processing} selected={false} cancelPending onCancel={vi.fn()} onRetry={vi.fn()} onExplore={vi.fn()} onFavorite={vi.fn()}/>);
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('Stopping');
+    expect(markup).toContain('motion-reduce:animate-none');
   });
 
   it('exposes favorite state as an accessible toggle', () => {
