@@ -1,4 +1,5 @@
 using System.Formats.Tar;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -27,39 +28,141 @@ public sealed class IndexingOptions
     public int HeartbeatSeconds { get; init; } = 10;
     public int MaxAttempts { get; init; } = 3;
     public int MaximumFiles { get; init; } = 5000;
+    public int MaximumArchiveEntries { get; init; } = 100_000;
     public int MaximumFileBytes { get; init; } = 1_048_576;
     public int MaximumSnapshotBytes { get; init; } = 52_428_800;
+    public long MaximumDownloadBytes { get; init; } = 262_144_000;
+    public long MaximumExpandedBytes { get; init; } = 1_073_741_824;
+    public int AcquisitionTimeoutSeconds { get; init; } = 120;
 }
 
-public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHubOptions> github, IOptions<IndexingOptions> indexing) : IRepositorySnapshotProvider
+public sealed class RepositoryAcquisitionException(string code, string safeMessage, bool retryable, Exception? innerException = null)
+    : Exception(safeMessage, innerException)
+{
+    public string Code { get; } = code;
+    public string SafeMessage { get; } = safeMessage;
+    public bool Retryable { get; } = retryable;
+}
+
+public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHubOptions> github, IOptions<IndexingOptions> indexing, ILogger<GitHubSnapshotProvider> logger) : IRepositorySnapshotProvider
 {
     private static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase) { ".cs", ".csproj", ".sln", ".json", ".ts", ".tsx", ".js", ".jsx", ".md", ".yml", ".yaml" };
+    private static readonly HashSet<string> ArchiveMediaTypes = new(StringComparer.OrdinalIgnoreCase) { "application/x-gzip", "application/gzip", "application/octet-stream" };
+    private static readonly Meter Meter = new("RepoNavAI.Indexing.Acquisition");
+    private static readonly Histogram<double> Duration = Meter.CreateHistogram<double>("reponav.indexing.acquisition.duration", "s");
+    private static readonly Histogram<long> DownloadBytes = Meter.CreateHistogram<long>("reponav.indexing.acquisition.download_bytes", "By");
+    private static readonly Histogram<long> ExpandedBytes = Meter.CreateHistogram<long>("reponav.indexing.acquisition.expanded_bytes", "By");
+    private static readonly Histogram<long> ArchiveEntries = Meter.CreateHistogram<long>("reponav.indexing.acquisition.entries", "{entry}");
+    private static readonly Histogram<long> SkippedFiles = Meter.CreateHistogram<long>("reponav.indexing.acquisition.skipped_files", "{file}");
+    private static readonly Counter<long> Failures = Meter.CreateCounter<long>("reponav.indexing.acquisition.failures");
 
     public async Task<RepositorySnapshotData> FetchAsync(string owner, string name, string branch, CancellationToken cancellationToken)
     {
-        using var commitRequest = CreateRequest(HttpMethod.Get, $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}/commits/{Uri.EscapeDataString(branch)}");
-        using var commitResponse = await httpClient.SendAsync(commitRequest, cancellationToken);
-        if (!commitResponse.IsSuccessStatusCode) throw new ExternalServiceException("The repository snapshot could not be resolved from GitHub.");
-        var commit = await commitResponse.Content.ReadFromJsonAsync<CommitResponse>(cancellationToken) ?? throw new ExternalServiceException("GitHub returned an invalid commit response.");
-        using var archiveRequest = CreateRequest(HttpMethod.Get, $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}/tarball/{commit.Sha}");
-        using var archiveResponse = await httpClient.SendAsync(archiveRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!archiveResponse.IsSuccessStatusCode) throw new ExternalServiceException("The repository snapshot could not be downloaded from GitHub.");
-        await using var stream = await archiveResponse.Content.ReadAsStreamAsync(cancellationToken);
-        await using var gzip = new GZipStream(stream, CompressionMode.Decompress);
-        using var tar = new TarReader(gzip);
-        var files = new List<RepositorySourceFile>(); var total = 0;
-        while (await tar.GetNextEntryAsync(copyData: false, cancellationToken) is { } entry)
+        var started = Stopwatch.GetTimestamp();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(indexing.Value.AcquisitionTimeoutSeconds));
+        var token = timeout.Token;
+        long downloaded = 0, expanded = 0, entries = 0, skipped = 0;
+        try
         {
-            if (entry.EntryType is not TarEntryType.RegularFile || entry.DataStream is null) continue;
-            var path = NormalizePath(entry.Name); var extension = Path.GetExtension(path);
-            if (path.Length == 0 || !Extensions.Contains(extension) || IsIgnored(path)) continue;
-            if (entry.Length > indexing.Value.MaximumFileBytes) continue;
-            total += checked((int)entry.Length);
-            if (total > indexing.Value.MaximumSnapshotBytes || files.Count >= indexing.Value.MaximumFiles) throw new InvalidOperationException("Repository exceeds the configured indexing limits.");
-            using var memory = new MemoryStream((int)entry.Length); await entry.DataStream.CopyToAsync(memory, cancellationToken);
-            files.Add(new RepositorySourceFile(path, Language(extension), memory.ToArray()));
+            using var commitRequest = CreateRequest(HttpMethod.Get, $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}/commits/{Uri.EscapeDataString(branch)}");
+            using var commitResponse = await SendAsync(commitRequest, HttpCompletionOption.ResponseContentRead, token);
+            EnsureSuccess(commitResponse, "resolved");
+            var commit = await commitResponse.Content.ReadFromJsonAsync<CommitResponse>(token)
+                ?? throw Failure("ARCHIVE_COMMIT_INVALID", "GitHub returned an invalid commit response.");
+            if (string.IsNullOrWhiteSpace(commit.Sha)) throw Failure("ARCHIVE_COMMIT_INVALID", "GitHub returned an invalid commit response.");
+
+            using var archiveRequest = CreateRequest(HttpMethod.Get, $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}/tarball/{commit.Sha}");
+            using var archiveResponse = await SendAsync(archiveRequest, HttpCompletionOption.ResponseHeadersRead, token);
+            EnsureSuccess(archiveResponse, "downloaded");
+            ValidateArchiveHeaders(archiveResponse);
+            await using var responseStream = await archiveResponse.Content.ReadAsStreamAsync(token);
+            await using var compressed = new BoundedReadStream(responseStream, indexing.Value.MaximumDownloadBytes,
+                () => Failure("ARCHIVE_DOWNLOAD_LIMIT", "Repository archive exceeds the configured download limit."));
+            var signature = new byte[2];
+            await ReadExactlyAsync(compressed, signature, token);
+            if (signature[0] != 0x1f || signature[1] != 0x8b) throw Failure("ARCHIVE_FORMAT_UNSUPPORTED", "GitHub returned an unsupported repository archive format.");
+            await using var prefixed = new PrefixReadStream(signature, compressed);
+            await using var gzip = new GZipStream(prefixed, CompressionMode.Decompress);
+            await using var decompressed = new BoundedReadStream(gzip, indexing.Value.MaximumExpandedBytes,
+                () => Failure("ARCHIVE_EXPANDED_LIMIT", "Repository archive exceeds the configured expanded-size limit."));
+            using var tar = new TarReader(decompressed);
+            var files = new List<RepositorySourceFile>(); var snapshotBytes = 0;
+            while (await tar.GetNextEntryAsync(copyData: false, token) is { } entry)
+            {
+                entries++;
+                if (entries > indexing.Value.MaximumArchiveEntries) throw Failure("ARCHIVE_ENTRY_LIMIT", "Repository archive contains more entries than the configured limit.");
+                ValidateEntry(entry);
+                if (entry.EntryType is not TarEntryType.RegularFile || entry.DataStream is null) continue;
+                var path = NormalizePath(entry.Name); var extension = Path.GetExtension(path);
+                if (!Extensions.Contains(extension) || IsIgnored(path)) { skipped++; continue; }
+                if (entry.Length < 0 || entry.Length > indexing.Value.MaximumFileBytes) throw Failure("ARCHIVE_FILE_LIMIT", $"A supported source file exceeds the configured {indexing.Value.MaximumFileBytes}-byte limit.");
+                snapshotBytes = checked(snapshotBytes + (int)entry.Length);
+                if (snapshotBytes > indexing.Value.MaximumSnapshotBytes) throw Failure("ARCHIVE_SNAPSHOT_LIMIT", "Supported source files exceed the configured snapshot-size limit.");
+                if (files.Count >= indexing.Value.MaximumFiles) throw Failure("ARCHIVE_FILE_COUNT_LIMIT", "Repository contains more supported source files than the configured limit.");
+                using var memory = new MemoryStream((int)entry.Length);
+                await entry.DataStream.CopyToAsync(memory, token);
+                files.Add(new RepositorySourceFile(path, Language(extension), memory.ToArray()));
+            }
+            downloaded = compressed.BytesRead; expanded = decompressed.BytesRead;
+            logger.LogInformation("Acquired repository archive with {DownloadBytes} compressed bytes, {ExpandedBytes} expanded bytes, {EntryCount} entries, {IndexedFileCount} indexed files, and {SkippedFileCount} skipped files", downloaded, expanded, entries, files.Count, skipped);
+            return new RepositorySnapshotData(commit.Sha, files);
         }
-        return new RepositorySnapshotData(commit.Sha, files);
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            var failure = Failure("ARCHIVE_TIMEOUT", "Repository archive acquisition exceeded the configured time limit."); RecordFailure(failure); throw failure;
+        }
+        catch (InvalidDataException exception) { var failure = Failure("ARCHIVE_MALFORMED", "GitHub returned a malformed or truncated repository archive.", exception); RecordFailure(failure); throw failure; }
+        catch (EndOfStreamException exception) { var failure = Failure("ARCHIVE_TRUNCATED", "GitHub returned a truncated repository archive.", exception); RecordFailure(failure); throw failure; }
+        catch (HttpRequestException exception) { var failure = new RepositoryAcquisitionException("ARCHIVE_PROVIDER_TRANSIENT", "GitHub could not complete the repository archive request. Retry later.", true, exception); RecordFailure(failure); throw failure; }
+        catch (RepositoryAcquisitionException exception) { RecordFailure(exception); throw; }
+        finally
+        {
+            Duration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds);
+            if (downloaded > 0) DownloadBytes.Record(downloaded);
+            if (expanded > 0) ExpandedBytes.Record(expanded);
+            ArchiveEntries.Record(entries); SkippedFiles.Record(skipped);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, HttpCompletionOption completion, CancellationToken token) => await httpClient.SendAsync(request, completion, token);
+    private static RepositoryAcquisitionException Failure(string code, string message, Exception? inner = null) => new(code, message, false, inner);
+    private void RecordFailure(RepositoryAcquisitionException exception)
+    {
+        Failures.Add(1, new KeyValuePair<string, object?>("category", exception.Code));
+        logger.LogWarning("Repository archive acquisition failed with category {FailureCategory}", exception.Code);
+    }
+    private static void EnsureSuccess(HttpResponseMessage response, string operation)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var transient = response.StatusCode is System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500;
+        throw new RepositoryAcquisitionException(transient ? "ARCHIVE_PROVIDER_TRANSIENT" : "ARCHIVE_PROVIDER_REJECTED",
+            transient ? $"GitHub could not complete the repository archive request. Retry later." : $"The repository snapshot could not be {operation} from GitHub. Check repository access.", transient);
+    }
+    private void ValidateArchiveHeaders(HttpResponseMessage response)
+    {
+        if (response.Content.Headers.ContentLength is { } length && length > indexing.Value.MaximumDownloadBytes) throw Failure("ARCHIVE_DOWNLOAD_LIMIT", "Repository archive exceeds the configured download limit.");
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (mediaType is not null && !ArchiveMediaTypes.Contains(mediaType)) throw Failure("ARCHIVE_CONTENT_TYPE", "GitHub returned an unexpected repository archive content type.");
+        if (response.Content.Headers.ContentEncoding.Count > 0 && !response.Content.Headers.ContentEncoding.All(x => x.Equals("identity", StringComparison.OrdinalIgnoreCase)))
+            throw Failure("ARCHIVE_CONTENT_ENCODING", "GitHub returned an unsupported repository archive content encoding.");
+    }
+    private static void ValidateEntry(TarEntry entry)
+    {
+        var normalized = entry.Name.Replace('\\', '/');
+        if (normalized.StartsWith('/') || normalized.Split('/').Any(segment => segment is "..")) throw Failure("ARCHIVE_PATH_UNSAFE", "Repository archive contains an unsafe path.");
+        if (entry.EntryType is TarEntryType.SymbolicLink or TarEntryType.HardLink) throw Failure("ARCHIVE_LINK_UNSUPPORTED", "Repository archive contains an unsupported link entry.");
+        if (entry.EntryType is TarEntryType.BlockDevice or TarEntryType.CharacterDevice or TarEntryType.Fifo) throw Failure("ARCHIVE_ENTRY_UNSUPPORTED", "Repository archive contains an unsupported special entry.");
+    }
+    private static async Task ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken token)
+    {
+        var offset = 0;
+        while (offset < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(offset), token);
+            if (read == 0) throw new EndOfStreamException();
+            offset += read;
+        }
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
@@ -68,10 +171,39 @@ public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHu
         if (!string.IsNullOrWhiteSpace(github.Value.AccessToken)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", github.Value.AccessToken);
         return request;
     }
-    private static string NormalizePath(string name) { var value = name.Replace('\\', '/'); var slash = value.IndexOf('/'); return slash < 0 ? string.Empty : value[(slash + 1)..]; }
+    private static string NormalizePath(string name) { var value = name.Replace('\\', '/'); var slash = value.IndexOf('/'); return slash < 0 || slash == value.Length - 1 ? string.Empty : value[(slash + 1)..]; }
     private static bool IsIgnored(string path) => path.Split('/').Any(segment => segment is ".git" or "node_modules" or "bin" or "obj" or "dist" or "coverage");
     private static string Language(string extension) => extension.ToLowerInvariant() switch { ".cs" => "csharp", ".ts" or ".tsx" => "typescript", ".js" or ".jsx" => "javascript", ".json" => "json", ".md" => "markdown", ".yml" or ".yaml" => "yaml", _ => "text" };
     private sealed record CommitResponse(string Sha);
+
+    private sealed class BoundedReadStream(Stream inner, long limit, Func<Exception> limitException) : Stream
+    {
+        public long BytesRead { get; private set; }
+        public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException(); public override long Position { get => BytesRead; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) { var read = inner.Read(buffer, offset, count); Count(read); return read; }
+        public override int Read(Span<byte> buffer) { var read = inner.Read(buffer); Count(read); return read; }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) { var read = await inner.ReadAsync(buffer, cancellationToken); Count(read); return read; }
+        private void Count(int read) { BytesRead += read; if (BytesRead > limit) throw limitException(); }
+        public override void Flush() { } public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException(); public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); base.Dispose(disposing); }
+        public override async ValueTask DisposeAsync() { await inner.DisposeAsync(); GC.SuppressFinalize(this); }
+    }
+
+    private sealed class PrefixReadStream(byte[] prefix, Stream inner) : Stream
+    {
+        private int offset;
+        public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException(); public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int bufferOffset, int count) => Read(buffer.AsSpan(bufferOffset, count));
+        public override int Read(Span<byte> buffer) { var copied = CopyPrefix(buffer); return copied == 0 ? inner.Read(buffer) : copied; }
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) { var copied = CopyPrefix(buffer.Span); return copied == 0 ? inner.ReadAsync(buffer, cancellationToken) : ValueTask.FromResult(copied); }
+        private int CopyPrefix(Span<byte> buffer) { var count = Math.Min(buffer.Length, prefix.Length - offset); if (count <= 0) return 0; prefix.AsSpan(offset, count).CopyTo(buffer); offset += count; return count; }
+        public override void Flush() { } public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException(); public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); base.Dispose(disposing); }
+        public override async ValueTask DisposeAsync() { await inner.DisposeAsync(); GC.SuppressFinalize(this); }
+    }
 }
 
 public sealed class CSharpSourceSymbolParser : ISourceSymbolParser
@@ -218,7 +350,12 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
         catch (DbUpdateConcurrencyException) { leaseLost = true; logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} no longer owns the lease", job.Id, leaseOwnerId); }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            logger.LogWarning("Indexing job {JobId} failed with {ErrorType}", job.Id, exception.GetType().Name); job.Fail("INDEXING_FAILED", "Repository indexing failed. Retry the job or check provider access and repository limits.", timeProvider.GetUtcNow(), options.Value.MaxAttempts); await store.SaveChangesAsync(cancellationToken);
+            var acquisition = exception as RepositoryAcquisitionException;
+            var code = acquisition?.Code ?? "INDEXING_FAILED";
+            var message = acquisition?.SafeMessage ?? "Repository indexing failed. Retry the job or check provider access and repository limits.";
+            var maximumAttempts = acquisition is { Retryable: false } ? job.AttemptCount : options.Value.MaxAttempts;
+            logger.LogWarning("Indexing job {JobId} failed with {ErrorType} and category {FailureCategory}", job.Id, exception.GetType().Name, code);
+            job.Fail(code, message, timeProvider.GetUtcNow(), maximumAttempts); await store.SaveChangesAsync(cancellationToken);
         }
         finally { await processing.CancelAsync(); await Task.WhenAll(heartbeat, cancellationMonitor); }
         return true;
