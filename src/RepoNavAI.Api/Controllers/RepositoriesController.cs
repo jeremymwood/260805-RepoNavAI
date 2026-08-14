@@ -115,6 +115,38 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     public Task<RepositoryAssistantIntentDto> ResolveAssistantIntent(Guid organizationId, Guid repositoryId, ResolveAssistantIntentRequest request, CancellationToken cancellationToken) =>
         sender.Send(new ResolveRepositoryAssistantIntentQuery(organizationId, repositoryId, request.Prompt), cancellationToken);
 
+    [HttpGet("{repositoryId:guid}/assistant/history")]
+    public Task<RepositoryAssistantHistoryPage> ListAssistantHistory(Guid organizationId, Guid repositoryId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default) =>
+        sender.Send(new ListRepositoryAssistantHistoryQuery(organizationId, repositoryId, page, pageSize), cancellationToken);
+
+    [HttpGet("{repositoryId:guid}/assistant/history/{historyId:guid}")]
+    public Task<RepositoryAssistantHistoryDetailDto> GetAssistantHistory(Guid organizationId, Guid repositoryId, Guid historyId, CancellationToken cancellationToken) =>
+        sender.Send(new GetRepositoryAssistantHistoryQuery(organizationId, repositoryId, historyId), cancellationToken);
+
+    [HttpPut("{repositoryId:guid}/assistant/history/{historyId:guid}/star")]
+    public async Task<IActionResult> SetAssistantHistoryStar(Guid organizationId, Guid repositoryId, Guid historyId, SetAssistantHistoryStarRequest request, CancellationToken cancellationToken)
+    {
+        await sender.Send(new SetRepositoryAssistantHistoryStarCommand(organizationId, repositoryId, historyId, request.IsStarred), cancellationToken); return NoContent();
+    }
+
+    [HttpPut("{repositoryId:guid}/assistant/history/{historyId:guid}/title")]
+    public async Task<IActionResult> RenameAssistantHistory(Guid organizationId, Guid repositoryId, Guid historyId, RenameAssistantHistoryRequest request, CancellationToken cancellationToken)
+    {
+        await sender.Send(new RenameRepositoryAssistantHistoryCommand(organizationId, repositoryId, historyId, request.Title), cancellationToken); return NoContent();
+    }
+
+    [HttpDelete("{repositoryId:guid}/assistant/history/{historyId:guid}")]
+    public async Task<IActionResult> DeleteAssistantHistory(Guid organizationId, Guid repositoryId, Guid historyId, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeleteRepositoryAssistantHistoryCommand(organizationId, repositoryId, historyId), cancellationToken); return NoContent();
+    }
+
+    [HttpDelete("{repositoryId:guid}/assistant/history")]
+    public async Task<IActionResult> ClearAssistantHistory(Guid organizationId, Guid repositoryId, ClearAssistantHistoryRequest request, CancellationToken cancellationToken)
+    {
+        await sender.Send(new ClearRepositoryAssistantHistoryCommand(organizationId, repositoryId, request.Confirmation), cancellationToken); return NoContent();
+    }
+
     private async Task WriteEventAsync(RepositoryChatEvent chatEvent, CancellationToken cancellationToken)
     {
         var eventName = chatEvent.Type.ToString().ToLowerInvariant();
@@ -132,3 +164,6 @@ public sealed record CreateOrientationPlanRequest(RepoNavAI.Domain.Repositories.
 public sealed record UpdateOrientationProgressRequest(IReadOnlyCollection<string> CompletedStepKeys);
 public sealed record GenerateCodeFlowRequest(string Question);
 public sealed record ResolveAssistantIntentRequest(string Prompt);
+public sealed record SetAssistantHistoryStarRequest(bool IsStarred);
+public sealed record RenameAssistantHistoryRequest(string Title);
+public sealed record ClearAssistantHistoryRequest(string Confirmation);

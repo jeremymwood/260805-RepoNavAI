@@ -21,7 +21,7 @@ The repository foreign key is the final write fence. An active worker that alrea
 
 ## Deleted data
 
-The existing cascade model removes repository favorites, indexing requests, snapshots, documents, symbols, chunks and vectors, endpoints, chat-session metadata, and orientation plans. The audit row deliberately has no foreign key to the removed repository, organization, or actor so later lifecycle cleanup cannot erase the record accidentally.
+The existing cascade model removes repository favorites, indexing requests, snapshots, documents, symbols, chunks and vectors, endpoints, chat-session metadata, orientation plans, and private assistant history. The audit row deliberately has no foreign key to the removed repository, organization, or actor so later lifecycle cleanup cannot erase the record accidentally.
 
 The audit retains only repository and actor identifiers, provider, owner, name, and removal time. It does not retain source content, prompts, answers, tokens, credentials, local paths, or provider diagnostics.
 

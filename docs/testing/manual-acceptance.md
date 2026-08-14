@@ -56,6 +56,18 @@ Use these checks after the automated suite passes and the local Docker stack is 
 9. Register the same GitHub URL again and confirm a new pending indexing request is created.
 10. Repeat while indexing is active. Confirm the worker stops and no snapshot or other derived row appears after removal commits.
 
+## Repository assistant history
+
+1. Run one Search, Answer, Orientation, and Code flow request against a completed repository index. Refresh and sign in again; confirm each completed result appears under **Your recent results**.
+2. Reopen each mode while monitoring provider calls. Confirm no embedding, retrieval, or chat-provider request occurs and the stored result retains its original commit-pinned citations.
+3. Confirm reopened Search and Code flow history do not expose stored retrieved source bodies. Live results may show evidence previews, while saved contracts retain only validated result fields and citation metadata.
+4. Star two entries and confirm starred results precede ordinary history with newest-first deterministic ordering. Unstar, rename, and paginate; refresh and confirm each change persists.
+5. Re-index the repository at a new commit. Confirm older results display an older-index warning while their original source links remain unchanged.
+6. Sign in as another member and confirm the first member's history is absent. Remove membership and confirm the former member cannot list or reopen history.
+7. Delete one entry, then clear the remaining history using the exact `CLEAR` confirmation. Confirm neither operation changes orientation plans or source repositories and that deleted history cannot be recovered.
+8. Lower retention, entry-count, or result-size limits in a disposable local environment. Confirm expired and oldest entries are pruned, oversized results are not stored, and the live assistant result remains usable.
+9. Remove the repository and use the read-only database workflow to confirm its assistant history rows are absent.
+
 ## Recording results
 
 Record the commit SHA, browser, test date, and pass/fail outcome in the pull request. Include only sanitized error messages or screenshots. Any failed check blocks merge until resolved or explicitly moved to a follow-up issue with an accepted risk.

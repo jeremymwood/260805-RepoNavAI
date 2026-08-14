@@ -86,6 +86,8 @@ Useful configuration keys:
 | `OpenAI__ChatModel`, `OpenAI__ChatMaxOutputTokens` | Repository-chat model and bounded output size; defaults to `gpt-4.1-mini` and 1200 tokens |
 | `OpenAI__ChatMaximumContextCharacters` | Maximum retrieved source characters supplied to one answer; defaults to 32,000 |
 | `RepositoryChat__OrganizationDailyRequestLimit` | Rolling 24-hour request cap per organization; defaults to 100 |
+| `AssistantHistory__RetentionDays`, `AssistantHistory__MaximumEntriesPerUserRepository` | Private assistant-history lifetime and per-user repository count limit |
+| `AssistantHistory__MaximumResultBytes`, `AssistantHistory__MaximumOrganizationStoredCharacters` | Saved-result and organization storage boundaries |
 | `Indexing__LeaseSeconds`, `Indexing__HeartbeatSeconds` | Worker ownership and recovery timing; defaults to 45 and 10 seconds |
 | `Indexing__MaximumDownloadBytes`, `Indexing__MaximumExpandedBytes`, `Indexing__MaximumArchiveEntries` | Compressed, expanded, and entry-count archive safety bounds |
 | `Indexing__MaximumFiles`, `Indexing__MaximumFileBytes`, `Indexing__MaximumSnapshotBytes` | Supported-source file count, per-file, and retained snapshot bounds |
@@ -113,6 +115,7 @@ Semantic search uses the pgvector-enabled PostgreSQL image. After adding an Open
 - ASP.NET endpoint catalog with method, route, handler, authorization, downstream-symbol, and source filters
 - Semantic code search backed by OpenAI embeddings and PostgreSQL `pgvector`
 - Streamed repository explanations grounded in retrieved evidence with source citations, cancellation, and organization quotas
+- Private per-user assistant history with saved-result stars, rename, deletion, version compatibility, and commit staleness
 - A static [public product preview](https://jeremymwood.github.io/260805-RepoNavAI/) that requires no account or secrets
 
 Known limitations and planned investments are maintained in [product steering](docs/product/steering.md), not duplicated here.

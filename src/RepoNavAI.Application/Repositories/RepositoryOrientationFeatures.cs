@@ -27,7 +27,7 @@ public sealed class CreateOrientationPlanValidator : AbstractValidator<CreateOri
 
 public sealed class CreateOrientationPlanHandler(IOrganizationAccess access, IRepositoryQueries repositories,
     IRepositoryOrientationStore store, IEmbeddingGenerator embeddings, IVectorStore vectors,
-    IRepositoryOrientationGenerator generator, ICurrentUser currentUser, TimeProvider timeProvider)
+    IRepositoryOrientationGenerator generator, IRepositoryAssistantHistoryStore history, ICurrentUser currentUser, TimeProvider timeProvider)
     : IRequestHandler<CreateOrientationPlanCommand, OrientationPlanDto>
 {
     private const string RetrievalPrompt = "application purpose architecture solution structure request entry points data flow domain concepts dependencies configuration operations deployment tests safe first changes";
@@ -40,6 +40,10 @@ public sealed class CreateOrientationPlanHandler(IOrganizationAccess access, IRe
         var snapshot = await store.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken)
             ?? throw new ConflictException("Complete repository indexing before creating an orientation plan.");
         var profile = new OrientationProfile(request.Role, request.Experience, request.Focus, request.TimeBudgetMinutes, request.Objective?.Trim());
+        var prompt = string.IsNullOrWhiteSpace(request.Objective) ? $"Create a {request.Focus} orientation plan." : request.Objective.Trim();
+        var historyEntry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Orientation, prompt, snapshot.CommitSha, cancellationToken);
+        try
+        {
         var embedding = (await embeddings.GenerateAsync([RetrievalPrompt + " " + request.Focus + " " + request.Objective], cancellationToken))[0];
         var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 20, cancellationToken);
         if (sources.Count == 0) throw new ConflictException("The indexed repository does not contain enough evidence for an orientation plan.");
@@ -61,7 +65,13 @@ public sealed class CreateOrientationPlanHandler(IOrganizationAccess access, IRe
             snapshot.CommitSha, request.Role, request.Experience, request.Focus, request.TimeBudgetMinutes, generator.Model,
             JsonSerializer.Serialize(content), timeProvider.GetUtcNow());
         await store.AddAsync(entity, cancellationToken); await store.SaveChangesAsync(cancellationToken);
+        await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.OrientationV1, null, entity.Id, cancellationToken);
         return OrientationPlanMapping.ToDto(entity, content, snapshot.CommitSha);
+        }
+        catch
+        {
+            await history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None); throw;
+        }
     }
 }
 

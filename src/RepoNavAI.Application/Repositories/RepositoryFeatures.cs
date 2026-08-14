@@ -1,6 +1,8 @@
 using FluentValidation;
 using MediatR;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using RepoNavAI.Application.Common.Exceptions;
 using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application.Organizations;
@@ -169,14 +171,27 @@ public sealed class GetRepositoryCapabilitiesHandler(IOrganizationAccess access,
     }
 }
 
-public sealed class SemanticSearchHandler(IOrganizationAccess access, IRepositoryQueries repositories, IEmbeddingGenerator embeddings, IVectorStore vectors, ICurrentUser currentUser) : IRequestHandler<SemanticSearchQuery, IReadOnlyCollection<SemanticSearchResult>>
+public sealed class SemanticSearchHandler(IOrganizationAccess access, IRepositoryQueries repositories, IRepositoryOrientationStore snapshots,
+    IEmbeddingGenerator embeddings, IVectorStore vectors, IRepositoryAssistantHistoryStore history, ICurrentUser currentUser) : IRequestHandler<SemanticSearchQuery, IReadOnlyCollection<SemanticSearchResult>>
 {
     public async Task<IReadOnlyCollection<SemanticSearchResult>> Handle(SemanticSearchQuery request, CancellationToken cancellationToken)
     {
         await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
         if (!await repositories.ExistsAsync(request.OrganizationId, request.RepositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
-        var query = (await embeddings.GenerateAsync([request.Query.Trim()], cancellationToken))[0];
-        return await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, query, request.Limit, cancellationToken);
+        var latest = await snapshots.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
+        var entry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Search, request.Query, latest?.CommitSha ?? string.Empty, cancellationToken);
+        try
+        {
+            var query = (await embeddings.GenerateAsync([request.Query.Trim()], cancellationToken))[0];
+            var results = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, query, request.Limit, cancellationToken);
+            var stored = new StoredSearchHistory(results.Select(x => new StoredAssistantCitation(x.Path, x.StartLine, x.EndLine, x.CommitSha, x.SourceUrl, x.Score)).ToArray());
+            await history.CompleteAsync(entry.Id, RepositoryAssistantHistorySchemas.SearchV1, JsonSerializer.Serialize(stored), null, cancellationToken);
+            return results;
+        }
+        catch
+        {
+            await history.FinishIncompleteAsync(entry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None); throw;
+        }
     }
 }
 
@@ -187,6 +202,8 @@ public sealed class StreamRepositoryChatHandler(
     IVectorStore vectors,
     IRepositoryAnswerGenerator answers,
     IRepositoryChatSessionStore sessions,
+    IRepositoryOrientationStore snapshots,
+    IRepositoryAssistantHistoryStore history,
     ICurrentUser currentUser) : IStreamRequestHandler<StreamRepositoryChatQuery, RepositoryChatEvent>
 {
     public async IAsyncEnumerable<RepositoryChatEvent> Handle(StreamRepositoryChatQuery request, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -199,27 +216,41 @@ public sealed class StreamRepositoryChatHandler(
         if (!answers.IsConfigured) throw new ExternalServiceException("Repository chat is not configured.");
 
         var question = request.Question.Trim();
+        var snapshot = await snapshots.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken)
+            ?? throw new ConflictException("Complete repository indexing before asking a repository question.");
         var sessionId = await sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, answers.Model, cancellationToken);
+        RepositoryAssistantHistory? historyEntry = null;
         var completed = false;
+        var answer = new StringBuilder(); RepositoryChatCitation[] citations = [];
         try
         {
+            historyEntry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Answer, question, snapshot.CommitSha, cancellationToken);
             var embedding = (await embeddings.GenerateAsync([question], cancellationToken))[0];
             var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 8, cancellationToken);
-            var citations = sources.Select((source, index) => new RepositoryChatCitation(index + 1, source.Path, source.StartLine, source.EndLine, source.CommitSha, source.SourceUrl, source.Score)).ToArray();
+            citations = sources.Select((source, index) => new RepositoryChatCitation(index + 1, source.Path, source.StartLine, source.EndLine, source.CommitSha, source.SourceUrl, source.Score)).ToArray();
             yield return new RepositoryChatEvent(RepositoryChatEventType.Citations, Citations: citations);
 
             if (sources.Count == 0)
-                yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, "I could not find enough indexed repository evidence to answer that question.");
+            {
+                const string insufficient = "I could not find enough indexed repository evidence to answer that question.";
+                answer.Append(insufficient); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, insufficient);
+            }
             else
                 await foreach (var delta in answers.StreamAsync(question, sources, cancellationToken).WithCancellation(cancellationToken))
-                    if (!string.IsNullOrEmpty(delta)) yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, delta);
+                    if (!string.IsNullOrEmpty(delta)) { answer.Append(delta); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, delta); }
 
-            yield return new RepositoryChatEvent(RepositoryChatEventType.Completed);
             completed = true;
+            yield return new RepositoryChatEvent(RepositoryChatEventType.Completed);
         }
         finally
         {
             var status = completed ? RepositoryChatStatus.Completed : cancellationToken.IsCancellationRequested ? RepositoryChatStatus.Cancelled : RepositoryChatStatus.Failed;
+            if (historyEntry is not null && completed)
+            {
+                var stored = new StoredAnswerHistory(answer.ToString(), citations.Select(x => new StoredAssistantCitation(x.Path, x.StartLine, x.EndLine, x.CommitSha, x.SourceUrl, x.Score, x.Number)).ToArray());
+                await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.AnswerV1, JsonSerializer.Serialize(stored), null, CancellationToken.None);
+            }
+            else if (historyEntry is not null) await history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None);
             await sessions.FinishAsync(sessionId, status, CancellationToken.None);
         }
     }

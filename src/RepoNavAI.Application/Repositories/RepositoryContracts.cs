@@ -50,6 +50,20 @@ public sealed record CodeFlowStep(string Key, int Order, string Title, string Co
     string Handoff, CodeFlowBoundary Boundary, OrientationEvidenceLevel EvidenceLevel, IReadOnlyCollection<OrientationCitation> Citations);
 public sealed record CodeFlowTraceDto(string SchemaVersion, Guid RepositoryId, string CommitSha, string Summary,
     IReadOnlyCollection<CodeFlowStep> Steps, IReadOnlyCollection<string> MissingEvidence, IReadOnlyCollection<SemanticSearchResult> Sources);
+public sealed record RepositoryAssistantHistorySummaryDto(Guid Id, RepositoryAssistantHistoryMode Mode,
+    RepositoryAssistantHistoryStatus Status, string Prompt, string DisplayTitle, string CommitSha, string? SchemaVersion,
+    bool IsStarred, bool IsStale, bool IsSupported, DateTimeOffset CreatedAtUtc, DateTimeOffset? CompletedAtUtc);
+public sealed record RepositoryAssistantHistoryPage(IReadOnlyCollection<RepositoryAssistantHistorySummaryDto> Items,
+    int Page, int PageSize, int TotalCount)
+{
+    public bool HasMore => Page * PageSize < TotalCount;
+}
+public sealed record RepositoryAssistantHistoryDetailDto(RepositoryAssistantHistorySummaryDto Summary, object? Result);
+public sealed record StoredAssistantCitation(string Path, int StartLine, int EndLine, string CommitSha, string SourceUrl, double? Score = null, int? Number = null);
+public sealed record StoredSearchHistory(IReadOnlyCollection<StoredAssistantCitation> Results);
+public sealed record StoredAnswerHistory(string Answer, IReadOnlyCollection<StoredAssistantCitation> Citations);
+public sealed record StoredCodeFlowHistory(string SchemaVersion, Guid RepositoryId, string CommitSha, string Summary,
+    IReadOnlyCollection<CodeFlowStep> Steps, IReadOnlyCollection<string> MissingEvidence);
 
 public enum RepositoryChatEventType { Citations, Delta, Completed, Error }
 public sealed record RepositoryChatEvent(RepositoryChatEventType Type, string? Delta = null, IReadOnlyCollection<RepositoryChatCitation>? Citations = null);
@@ -141,4 +155,18 @@ public interface IRepositoryChatSessionStore
 {
     Task<Guid> StartAsync(Guid organizationId, Guid repositoryId, Guid userId, string model, CancellationToken cancellationToken);
     Task FinishAsync(Guid sessionId, RepositoryChatStatus status, CancellationToken cancellationToken);
+}
+
+public interface IRepositoryAssistantHistoryStore
+{
+    Task<RepositoryAssistantHistory> StartAsync(Guid organizationId, Guid repositoryId, Guid userId,
+        RepositoryAssistantHistoryMode mode, string prompt, string commitSha, CancellationToken cancellationToken);
+    Task CompleteAsync(Guid historyId, string schemaVersion, string? resultJson, Guid? orientationPlanId, CancellationToken cancellationToken);
+    Task FinishIncompleteAsync(Guid historyId, RepositoryAssistantHistoryStatus status, CancellationToken cancellationToken);
+    Task<RepositoryAssistantHistoryPage> ListAsync(Guid organizationId, Guid repositoryId, Guid userId, string? latestCommitSha, int page, int pageSize, CancellationToken cancellationToken);
+    Task<RepositoryAssistantHistory?> GetAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, CancellationToken cancellationToken);
+    Task SetStarredAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, bool isStarred, CancellationToken cancellationToken);
+    Task RenameAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, string title, CancellationToken cancellationToken);
+    Task DeleteAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, CancellationToken cancellationToken);
+    Task ClearAsync(Guid organizationId, Guid repositoryId, Guid userId, CancellationToken cancellationToken);
 }
