@@ -144,6 +144,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         {
             entity.ToTable("RepositorySnapshots"); entity.HasKey(x => x.Id); entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.CommitSha).HasMaxLength(64).IsRequired(); entity.HasIndex(x => new { x.RepositoryId, x.CommitSha }).IsUnique();
+            entity.Property(x => x.CoverageStatus).HasMaxLength(16).IsRequired(); entity.Property(x => x.CoverageJson).HasColumnType("jsonb").IsRequired();
             entity.HasOne(x => x.Repository).WithMany(x => x.Snapshots).HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
         });
         builder.Entity<RepositoryDocument>(entity =>

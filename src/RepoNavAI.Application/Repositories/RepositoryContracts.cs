@@ -27,11 +27,12 @@ public sealed record RepositoryPage(IReadOnlyCollection<RepositoryDto> Items, in
 }
 public sealed record IndexingRequestDto(Guid Id, Guid RepositoryId, IndexingRequestStatus Status, IndexingCheckpoint Checkpoint, int AttemptCount, string? CommitSha, string? ErrorCode, string? ErrorMessage, DateTimeOffset CreatedAtUtc, DateTimeOffset? CompletedAtUtc);
 public sealed record RepositorySourceFile(string Path, string Language, byte[] Content);
+public sealed record RepositoryLanguageCoverage(string Language, int Indexed, int SkippedUnsupported, int SkippedExcluded, int SkippedBinary);
 public sealed record ParsedSymbol(string Name, string QualifiedName, SymbolKind Kind, int Line);
-public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollection<RepositorySourceFile> Files);
+public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollection<RepositorySourceFile> Files, IReadOnlyCollection<RepositoryLanguageCoverage>? Coverage = null);
 public sealed record ParsedEndpoint(string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols);
 public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols, string CommitSha, string SourceUrl);
-public sealed record RepositoryCapabilitiesDto(bool HasIndexedContent, bool HasSourceCode, bool HasTests, bool HasDocumentation, bool HasApiEndpoints, IReadOnlyCollection<string> RepresentativePaths);
+public sealed record RepositoryCapabilitiesDto(bool HasIndexedContent, bool HasSourceCode, bool HasTests, bool HasDocumentation, bool HasApiEndpoints, IReadOnlyCollection<string> RepresentativePaths, string CoverageStatus = "none", IReadOnlyCollection<RepositoryLanguageCoverage>? Languages = null);
 public sealed record TextChunk(int Ordinal, int StartLine, int EndLine, string Content);
 public sealed record SemanticSearchResult(Guid ChunkId, string Path, int StartLine, int EndLine, string Content, double Score, string CommitSha, string SourceUrl);
 public sealed record RepositoryChatCitation(int Number, string Path, int StartLine, int EndLine, string CommitSha, string SourceUrl, double Score);

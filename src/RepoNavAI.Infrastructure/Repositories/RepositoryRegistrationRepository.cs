@@ -53,7 +53,6 @@ public sealed class RepositoryRemovalStore(AppDbContext dbContext) : IRepository
 
 public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueries
 {
-    private static readonly string[] SourceExtensions = [".cs", ".ts", ".tsx", ".js", ".jsx"];
     public Task<bool> ExistsAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => dbContext.RegisteredRepositories.AnyAsync(x => x.OrganizationId == organizationId && x.Id == repositoryId, cancellationToken);
     public async Task<RepositoryPage> ListAsync(Guid organizationId, Guid userId, int page, int pageSize, CancellationToken cancellationToken)
     {
@@ -102,14 +101,14 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
     public async Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken)
     {
         if (!await ExistsAsync(organizationId, repositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
-        var snapshotId = await dbContext.RepositorySnapshots.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId).OrderByDescending(x => x.CreatedAtUtc).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken);
-        if (snapshotId is null) return new(false, false, false, false, false, []);
-        var paths = await dbContext.RepositoryDocuments.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId).OrderBy(x => x.Path).Select(x => x.Path).ToArrayAsync(cancellationToken);
-        var hasChunks = await dbContext.RepositoryChunks.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId, cancellationToken);
-        var hasEndpoints = await dbContext.RepositoryEndpoints.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId, cancellationToken);
-        bool IsSource(string path) => SourceExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
-        var representativePaths = paths.Where(IsSource).Concat(paths.Where(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase))).Take(5).ToArray();
-        return new(hasChunks, paths.Any(IsSource), paths.Any(path => path.Contains("test", StringComparison.OrdinalIgnoreCase)), paths.Any(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)), hasEndpoints, representativePaths);
+        var snapshot = await dbContext.RepositorySnapshots.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId).OrderByDescending(x => x.CreatedAtUtc).Select(x => new { x.Id, x.CoverageStatus, x.CoverageJson }).FirstOrDefaultAsync(cancellationToken);
+        if (snapshot is null) return new(false, false, false, false, false, []);
+        var documents = await dbContext.RepositoryDocuments.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshot.Id).OrderBy(x => x.Path).Select(x => new { x.Path, x.Language }).ToArrayAsync(cancellationToken);
+        var hasChunks = await dbContext.RepositoryChunks.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId && x.SnapshotId == snapshot.Id, cancellationToken);
+        var hasEndpoints = await dbContext.RepositoryEndpoints.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId && x.SnapshotId == snapshot.Id, cancellationToken);
+        var representativePaths = documents.Where(item => SourceLanguageRegistry.IsExecutableLanguage(item.Language)).Select(item => item.Path).Concat(documents.Where(item => item.Language == "markdown").Select(item => item.Path)).Take(5).ToArray();
+        var languages = System.Text.Json.JsonSerializer.Deserialize<RepositoryLanguageCoverage[]>(snapshot.CoverageJson) ?? [];
+        return new(hasChunks, documents.Any(item => SourceLanguageRegistry.IsExecutableLanguage(item.Language)), documents.Any(item => item.Path.Contains("test", StringComparison.OrdinalIgnoreCase)), documents.Any(item => item.Language == "markdown"), hasEndpoints, representativePaths, snapshot.CoverageStatus, languages);
     }
 }
 

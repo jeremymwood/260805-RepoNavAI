@@ -26,6 +26,39 @@ public sealed class GitHubSnapshotProviderTests
     }
 
     [Fact]
+    public async Task FetchAsync_IngestsPolyglotSourceAndReportsLanguageCoverage()
+    {
+        var provider = CreateProvider(Archive(
+            ("root/app/main.py", "print('hello')"), ("root/native/main.c", "int main(void) { return 0; }"),
+            ("root/native/lib.cpp", "int value() { return 1; }"), ("root/cmd/main.go", "package main"),
+            ("root/src/Main.java", "class Main {}"), ("root/src/lib.rs", "pub fn value() {}"),
+            ("root/lib/main.rb", "puts 'hello'"), ("root/src/Main.kt", "fun main() {}")));
+
+        var snapshot = await provider.FetchAsync("owner", "repo", "main", CancellationToken.None);
+
+        snapshot.Files.Select(file => file.Language).Should().BeEquivalentTo("python", "c", "cpp", "go", "java", "rust", "ruby", "kotlin");
+        snapshot.Coverage.Should().OnlyContain(item => item.Indexed == 1);
+    }
+
+    [Fact]
+    public async Task FetchAsync_ReportsVendorGeneratedUnsupportedAndBinarySkips()
+    {
+        var provider = CreateProvider(ArchiveBytes(
+            ("root/vendor/library.py", Encoding.UTF8.GetBytes("print('vendor')")),
+            ("root/generated/model.go", Encoding.UTF8.GetBytes("package generated")),
+            ("root/src/unknown.swift", Encoding.UTF8.GetBytes("struct Value {}")),
+            ("root/src/binary.py", [0x00, 0x01, 0x02]),
+            ("root/src/app.py", Encoding.UTF8.GetBytes("print('safe')"))));
+
+        var snapshot = await provider.FetchAsync("owner", "repo", "main", CancellationToken.None);
+
+        snapshot.Files.Should().ContainSingle(file => file.Path == "src/app.py");
+        snapshot.Coverage.Should().Contain(item => item.Language == "python" && item.Indexed == 1 && item.SkippedExcluded == 1 && item.SkippedBinary == 1);
+        snapshot.Coverage.Should().Contain(item => item.Language == "go" && item.SkippedExcluded == 1);
+        snapshot.Coverage.Should().Contain(item => item.Language == "other" && item.SkippedUnsupported == 1);
+    }
+
+    [Fact]
     public async Task FetchAsync_RejectsUnsupportedCompressionBeforeTraversal()
     {
         var provider = CreateProvider(Encoding.UTF8.GetBytes("not a gzip archive"));
@@ -118,6 +151,9 @@ public sealed class GitHubSnapshotProviderTests
     }
 
     private static byte[] Archive(params (string Name, string Content)[] files)
+        => ArchiveBytes(files.Select(file => (file.Name, Encoding.UTF8.GetBytes(file.Content))).ToArray());
+
+    private static byte[] ArchiveBytes(params (string Name, byte[] Content)[] files)
     {
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
@@ -125,7 +161,7 @@ public sealed class GitHubSnapshotProviderTests
         {
             foreach (var file in files)
             {
-                var entry = new PaxTarEntry(TarEntryType.RegularFile, file.Name) { DataStream = new MemoryStream(Encoding.UTF8.GetBytes(file.Content)) };
+                var entry = new PaxTarEntry(TarEntryType.RegularFile, file.Name) { DataStream = new MemoryStream(file.Content) };
                 tar.WriteEntry(entry);
             }
         }
