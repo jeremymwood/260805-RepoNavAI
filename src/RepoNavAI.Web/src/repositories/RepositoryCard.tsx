@@ -11,10 +11,11 @@ interface RepositoryCardProps {
   onExplore: () => void;
   onFavorite: () => void;
   favoritePending?: boolean;
+  cancelPending?: boolean;
   retryPending?: boolean;
 }
 
-export function RepositoryCard({ repository, selected, onCancel, onRetry, onExplore, onFavorite, favoritePending, retryPending }: RepositoryCardProps) {
+export function RepositoryCard({ repository, selected, onCancel, onRetry, onExplore, onFavorite, favoritePending, cancelPending, retryPending }: RepositoryCardProps) {
   const retryable = ['Failed', 'Cancelled'].includes(repository.indexingStatus);
   return <article className={`relative min-w-0 overflow-hidden rounded-xl border p-4 ${selected ? 'border-brand-500 ring-2 ring-brand-100' : 'border-slate-200'}`}>
     <div className="flex items-start gap-3">
@@ -36,7 +37,7 @@ export function RepositoryCard({ repository, selected, onCancel, onRetry, onExpl
     </div>
     {repository.errorMessage && <p className="mt-3 break-words pr-8 text-xs font-medium leading-5 text-red-600">{repository.errorMessage}</p>}
     <div className={`flex items-end gap-4 ${repository.errorMessage || repository.indexingStatus === 'Completed' || ['Pending', 'Processing'].includes(repository.indexingStatus) ? 'mt-3' : 'mt-1'}`}>
-      {(['Pending', 'Processing'].includes(repository.indexingStatus)) && <button type="button" className="group ml-auto grid h-8 w-8 place-items-center rounded-lg text-brand-600 transition hover:scale-110 hover:text-red-600 focus:outline-none focus-visible:scale-110 focus-visible:text-red-600 focus-visible:ring-2 focus-visible:ring-brand-500" onClick={onCancel} aria-label={`Cancel indexing ${repository.fullName}`} title="Cancel indexing"><span className="group-hover:hidden group-focus-visible:hidden"><AppIcon icon={RefreshCw} size="sm" className="animate-spin motion-reduce:animate-none"/></span><span className="hidden group-hover:block group-focus-visible:block"><AppIcon icon={X} size="sm"/></span></button>}
+      {(['Pending', 'Processing'].includes(repository.indexingStatus)) && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">{cancelPending ? 'Stopping…' : repository.indexingCheckpoint}</span><button type="button" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-60" disabled={cancelPending} onClick={onCancel} aria-label={`Cancel indexing ${repository.fullName}`}><AppIcon icon={cancelPending ? RefreshCw : X} size="xs" className={cancelPending ? 'animate-spin motion-reduce:animate-none' : undefined}/>{cancelPending ? 'Stopping' : 'Cancel'}</button></div>}
       {repository.indexingStatus === 'Completed' && <button className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600" onClick={onExplore}><AppIcon icon={Compass} size="xs"/> Explore repository</button>}
       {retryable && <button type="button" className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-slate-200 transition hover:scale-110 hover:text-brand-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-60" disabled={retryPending} onClick={onRetry} aria-label={`Retry indexing ${repository.fullName}`} title="Retry indexing"><AppIcon icon={RefreshCw} size="sm" className={retryPending ? 'animate-spin text-brand-600 motion-reduce:animate-none' : undefined}/></button>}
     </div>
