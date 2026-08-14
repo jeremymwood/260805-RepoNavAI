@@ -13,10 +13,17 @@ public sealed class RepositorySnapshot : Entity
     public Guid OrganizationId { get; private set; }
     public Guid RepositoryId { get; private set; }
     public string CommitSha { get; private set; } = string.Empty;
+    public string CoverageStatus { get; private set; } = "none";
+    public string CoverageJson { get; private set; } = "[]";
     public RegisteredRepository Repository { get; private set; } = null!;
     public ICollection<RepositoryDocument> Documents { get; private set; } = new List<RepositoryDocument>();
     public ICollection<RepositoryEndpoint> Endpoints { get; private set; } = new List<RepositoryEndpoint>();
     public ICollection<RepositoryChunk> Chunks { get; private set; } = new List<RepositoryChunk>();
+    public void SetCoverage(string status, string coverageJson)
+    {
+        CoverageStatus = string.IsNullOrWhiteSpace(status) ? throw new ArgumentException("Coverage status is required.", nameof(status)) : status;
+        CoverageJson = string.IsNullOrWhiteSpace(coverageJson) ? "[]" : coverageJson;
+    }
 }
 
 public sealed class RepositoryChunk : Entity

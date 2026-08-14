@@ -46,7 +46,7 @@ public sealed class RepositoryAcquisitionException(string code, string safeMessa
 
 public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHubOptions> github, IOptions<IndexingOptions> indexing, ILogger<GitHubSnapshotProvider> logger) : IRepositorySnapshotProvider
 {
-    private static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase) { ".cs", ".csproj", ".sln", ".json", ".ts", ".tsx", ".js", ".jsx", ".md", ".yml", ".yaml" };
+    private static readonly SourceLanguageRegistry LanguageRegistry = new();
     private static readonly HashSet<string> ArchiveMediaTypes = new(StringComparer.OrdinalIgnoreCase) { "application/x-gzip", "application/gzip", "application/octet-stream" };
     private static readonly Meter Meter = new("RepoNavAI.Indexing.Acquisition");
     private static readonly Histogram<double> Duration = Meter.CreateHistogram<double>("reponav.indexing.acquisition.duration", "s");
@@ -88,25 +88,32 @@ public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHu
                 () => Failure("ARCHIVE_EXPANDED_LIMIT", "Repository archive exceeds the configured expanded-size limit."));
             using var tar = new TarReader(decompressed);
             var files = new List<RepositorySourceFile>(); var snapshotBytes = 0;
+            var coverage = new Dictionary<string, MutableCoverage>(StringComparer.OrdinalIgnoreCase);
             while (await tar.GetNextEntryAsync(copyData: false, token) is { } entry)
             {
                 entries++;
                 if (entries > indexing.Value.MaximumArchiveEntries) throw Failure("ARCHIVE_ENTRY_LIMIT", "Repository archive contains more entries than the configured limit.");
                 ValidateEntry(entry);
                 if (entry.EntryType is not TarEntryType.RegularFile || entry.DataStream is null) continue;
-                var path = NormalizePath(entry.Name); var extension = Path.GetExtension(path);
-                if (!Extensions.Contains(extension) || IsIgnored(path)) { skipped++; continue; }
+                var path = NormalizePath(entry.Name); var classification = LanguageRegistry.ClassifyPath(path);
+                if (!classification.IsSupported)
+                {
+                    skipped++; AddSkipped(coverage, classification.Language?.Name ?? "other", classification.SkipReason!); continue;
+                }
                 if (entry.Length < 0 || entry.Length > indexing.Value.MaximumFileBytes) throw Failure("ARCHIVE_FILE_LIMIT", $"A supported source file exceeds the configured {indexing.Value.MaximumFileBytes}-byte limit.");
                 snapshotBytes = checked(snapshotBytes + (int)entry.Length);
                 if (snapshotBytes > indexing.Value.MaximumSnapshotBytes) throw Failure("ARCHIVE_SNAPSHOT_LIMIT", "Supported source files exceed the configured snapshot-size limit.");
                 if (files.Count >= indexing.Value.MaximumFiles) throw Failure("ARCHIVE_FILE_COUNT_LIMIT", "Repository contains more supported source files than the configured limit.");
                 using var memory = new MemoryStream((int)entry.Length);
                 await entry.DataStream.CopyToAsync(memory, token);
-                files.Add(new RepositorySourceFile(path, Language(extension), memory.ToArray()));
+                var content = memory.ToArray();
+                if (!SourceLanguageRegistry.IsText(content)) { skipped++; AddSkipped(coverage, classification.Language!.Name, SourceLanguageRegistry.Binary); continue; }
+                files.Add(new RepositorySourceFile(path, classification.Language!.Name, content));
+                GetCoverage(coverage, classification.Language.Name).Indexed++;
             }
             downloaded = compressed.BytesRead; expanded = decompressed.BytesRead;
             logger.LogInformation("Acquired repository archive with {DownloadBytes} compressed bytes, {ExpandedBytes} expanded bytes, {EntryCount} entries, {IndexedFileCount} indexed files, and {SkippedFileCount} skipped files", downloaded, expanded, entries, files.Count, skipped);
-            return new RepositorySnapshotData(commit.Sha, files);
+            return new RepositorySnapshotData(commit.Sha, files, coverage.OrderBy(item => item.Key).Select(item => item.Value.ToContract(item.Key)).ToArray());
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
         {
@@ -172,8 +179,23 @@ public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHu
         return request;
     }
     private static string NormalizePath(string name) { var value = name.Replace('\\', '/'); var slash = value.IndexOf('/'); return slash < 0 || slash == value.Length - 1 ? string.Empty : value[(slash + 1)..]; }
-    private static bool IsIgnored(string path) => path.Split('/').Any(segment => segment is ".git" or "node_modules" or "bin" or "obj" or "dist" or "coverage");
-    private static string Language(string extension) => extension.ToLowerInvariant() switch { ".cs" => "csharp", ".ts" or ".tsx" => "typescript", ".js" or ".jsx" => "javascript", ".json" => "json", ".md" => "markdown", ".yml" or ".yaml" => "yaml", _ => "text" };
+    private static MutableCoverage GetCoverage(Dictionary<string, MutableCoverage> coverage, string language)
+    {
+        if (!coverage.TryGetValue(language, out var value)) coverage[language] = value = new();
+        return value;
+    }
+    private static void AddSkipped(Dictionary<string, MutableCoverage> coverage, string language, string reason)
+    {
+        var value = GetCoverage(coverage, language);
+        if (reason == SourceLanguageRegistry.Unsupported) value.SkippedUnsupported++;
+        else if (reason == SourceLanguageRegistry.Binary) value.SkippedBinary++;
+        else value.SkippedExcluded++;
+    }
+    private sealed class MutableCoverage
+    {
+        public int Indexed; public int SkippedUnsupported; public int SkippedExcluded; public int SkippedBinary;
+        public RepositoryLanguageCoverage ToContract(string language) => new(language, Indexed, SkippedUnsupported, SkippedExcluded, SkippedBinary);
+    }
     private sealed record CommitResponse(string Sha);
 
     private sealed class BoundedReadStream(Stream inner, long limit, Func<Exception> limitException) : Stream
@@ -266,8 +288,14 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
     public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, IRepositoryEndpointAnalyzer endpointAnalyzer, ISourceChunker chunker, IEmbeddingGenerator embeddingGenerator, IVectorStore vectorStore, CancellationToken cancellationToken)
     {
         var existing = await db.RepositorySnapshots.Include(x => x.Chunks).SingleOrDefaultAsync(x => x.RepositoryId == job.RepositoryId && x.CommitSha == data.CommitSha, cancellationToken);
-        if (existing is not null) { await EmbedAsync(job, existing, embeddingGenerator, vectorStore, cancellationToken); return; }
+        if (existing is not null)
+        {
+            ApplyCoverage(existing, data.Coverage);
+            await EmbedAsync(job, existing, embeddingGenerator, vectorStore, cancellationToken);
+            return;
+        }
         var snapshot = new RepositorySnapshot(job.OrganizationId, job.RepositoryId, data.CommitSha);
+        ApplyCoverage(snapshot, data.Coverage);
         foreach (var file in data.Files)
         {
             var text = Encoding.UTF8.GetString(file.Content); var hash = Convert.ToHexString(SHA256.HashData(file.Content));
@@ -285,6 +313,15 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
         job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromSeconds(options.Value.LeaseSeconds));
         await db.RepositorySnapshots.AddAsync(snapshot, cancellationToken); await db.SaveChangesAsync(cancellationToken);
         await EmbedAsync(job, snapshot, embeddingGenerator, vectorStore, cancellationToken);
+    }
+
+    private static void ApplyCoverage(RepositorySnapshot snapshot, IReadOnlyCollection<RepositoryLanguageCoverage>? suppliedCoverage)
+    {
+        var coverage = suppliedCoverage ?? [];
+        var executable = coverage.Where(item => SourceLanguageRegistry.IsExecutableLanguage(item.Language)).ToArray();
+        var indexedExecutable = executable.Sum(item => item.Indexed);
+        var skippedExecutable = executable.Sum(item => item.SkippedUnsupported + item.SkippedExcluded + item.SkippedBinary);
+        snapshot.SetCoverage(indexedExecutable == 0 ? "none" : skippedExecutable > 0 ? "partial" : "full", System.Text.Json.JsonSerializer.Serialize(coverage));
     }
 
     private static async Task EmbedAsync(RepositoryIndexingRequest job, RepositorySnapshot snapshot, IEmbeddingGenerator embeddingGenerator, IVectorStore vectorStore, CancellationToken cancellationToken)
