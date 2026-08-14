@@ -43,6 +43,19 @@ Use these checks after the automated suite passes and the local Docker stack is 
 7. Confirm long citations and answer text remain contained at supported desktop and mobile widths.
 8. Restart the Docker stack, reload the application, and confirm chat still works after migrations and service recovery.
 
+## Repository removal
+
+1. As an organization member, confirm repository cards do not expose a removal action and a direct DELETE request returns forbidden.
+2. As an owner or administrator, open removal for a disposable test repository and confirm focus moves into the labelled dialog.
+3. Press Escape and click outside the dialog. Confirm neither action dismisses the warning unexpectedly.
+4. Enter a different repository name and confirm **Remove repository** remains disabled.
+5. Enter the displayed `owner/name`, submit, and confirm controls remain disabled while removal is pending.
+6. Confirm the repository disappears, success is announced, and focus returns safely to the repository area.
+7. Confirm the source GitHub repository remains unchanged.
+8. Inspect the local database using the read-only workflow. Confirm indexing requests, snapshots, documents, symbols, chunks, endpoints, chat metadata, orientation plans, and favorites for the repository are absent, while one metadata-only removal audit remains.
+9. Register the same GitHub URL again and confirm a new pending indexing request is created.
+10. Repeat while indexing is active. Confirm the worker stops and no snapshot or other derived row appears after removal commits.
+
 ## Recording results
 
 Record the commit SHA, browser, test date, and pass/fail outcome in the pull request. Include only sanitized error messages or screenshots. Any failed check blocks merge until resolved or explicitly moved to a follow-up issue with an accepted risk.

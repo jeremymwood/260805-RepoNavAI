@@ -1,4 +1,4 @@
-import { Compass, ExternalLink, GitBranch, LockKeyhole, RefreshCw, Star, X } from 'lucide-react';
+import { Compass, ExternalLink, GitBranch, LockKeyhole, RefreshCw, Star, Trash2, X } from 'lucide-react';
 import { AppIcon } from '../components/AppIcon';
 import { IndexingStatusBadge } from './IndexingStatusBadge';
 import type { RegisteredRepository } from './types';
@@ -13,9 +13,10 @@ interface RepositoryCardProps {
   favoritePending?: boolean;
   cancelPending?: boolean;
   retryPending?: boolean;
+  onRemove?: () => void;
 }
 
-export function RepositoryCard({ repository, selected, onCancel, onRetry, onExplore, onFavorite, favoritePending, cancelPending, retryPending }: RepositoryCardProps) {
+export function RepositoryCard({ repository, selected, onCancel, onRetry, onExplore, onFavorite, favoritePending, cancelPending, retryPending, onRemove }: RepositoryCardProps) {
   const retryable = ['Failed', 'Cancelled'].includes(repository.indexingStatus);
   return <article className={`relative min-w-0 overflow-hidden rounded-xl border p-4 ${selected ? 'border-brand-500 ring-2 ring-brand-100' : 'border-slate-200'}`}>
     <div className="flex items-start gap-3">
@@ -27,6 +28,7 @@ export function RepositoryCard({ repository, selected, onCancel, onRetry, onExpl
         </span>
       </a>
       <button type="button" className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition hover:scale-110 hover:text-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50 ${repository.isFavorite ? 'text-amber-500' : 'text-slate-200'}`} aria-label={`${repository.isFavorite ? 'Remove' : 'Add'} ${repository.fullName} ${repository.isFavorite ? 'from' : 'to'} favorites`} aria-pressed={repository.isFavorite} disabled={favoritePending} onClick={onFavorite}><AppIcon icon={Star} size="sm" className={repository.isFavorite ? 'fill-current' : undefined}/></button>
+      {onRemove && <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" aria-label={`Remove ${repository.fullName} from RepoNavAI`} onClick={onRemove}><AppIcon icon={Trash2} size="sm"/></button>}
     </div>
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
       <IndexingStatusBadge status={repository.indexingStatus}/>

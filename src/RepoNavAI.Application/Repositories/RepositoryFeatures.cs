@@ -16,6 +16,7 @@ public sealed record GetIndexingStatusQuery(Guid OrganizationId, Guid Repository
 public sealed record CancelIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
 public sealed record RetryIndexingCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
 public sealed record ReindexRepositoryCommand(Guid OrganizationId, Guid RepositoryId) : IRequest;
+public sealed record RemoveRepositoryCommand(Guid OrganizationId, Guid RepositoryId, string Confirmation) : IRequest;
 public sealed record ListRepositoryEndpointsQuery(Guid OrganizationId, Guid RepositoryId, string? Method, string? Search, bool? RequiresAuthorization) : IRequest<IReadOnlyCollection<RepositoryEndpointDto>>;
 public sealed record GetRepositoryCapabilitiesQuery(Guid OrganizationId, Guid RepositoryId) : IRequest<RepositoryCapabilitiesDto>;
 public sealed record SemanticSearchQuery(Guid OrganizationId, Guid RepositoryId, string Query, int Limit = 10) : IRequest<IReadOnlyCollection<SemanticSearchResult>>;
@@ -127,6 +128,26 @@ public sealed class ReindexRepositoryHandler(IOrganizationAccess access, IReposi
         if (current is { Status: IndexingRequestStatus.Pending or IndexingRequestStatus.Processing }) throw new ConflictException("Repository indexing is already in progress.");
         await jobs.AddAsync(new RepositoryIndexingRequest(request.OrganizationId, request.RepositoryId, currentUser.UserId), cancellationToken);
         await jobs.SaveChangesAsync(cancellationToken);
+    }
+}
+
+public sealed class RemoveRepositoryValidator : AbstractValidator<RemoveRepositoryCommand>
+{
+    public RemoveRepositoryValidator()
+    {
+        RuleFor(x => x.OrganizationId).NotEmpty();
+        RuleFor(x => x.RepositoryId).NotEmpty();
+        RuleFor(x => x.Confirmation).NotEmpty().MaximumLength(201);
+    }
+}
+
+public sealed class RemoveRepositoryHandler(IOrganizationAccess access, IRepositoryRemovalStore repositories, ICurrentUser currentUser, TimeProvider timeProvider)
+    : IRequestHandler<RemoveRepositoryCommand>
+{
+    public async Task Handle(RemoveRepositoryCommand request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Administrator, cancellationToken);
+        await repositories.RemoveAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, request.Confirmation.Trim(), timeProvider.GetUtcNow(), cancellationToken);
     }
 }
 

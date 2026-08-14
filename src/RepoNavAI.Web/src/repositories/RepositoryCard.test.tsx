@@ -65,4 +65,11 @@ describe('RepositoryCard', () => {
     expect(markup).toContain('12345678');
     expect(markup).not.toContain('indexingCheckpoint');
   });
+
+  it('shows repository removal only when the caller authorizes it', () => {
+    const authorized = renderToStaticMarkup(<RepositoryCard repository={repository} selected={false} onCancel={vi.fn()} onRetry={vi.fn()} onExplore={vi.fn()} onFavorite={vi.fn()} onRemove={vi.fn()}/>);
+    const member = renderToStaticMarkup(<RepositoryCard repository={repository} selected={false} onCancel={vi.fn()} onRetry={vi.fn()} onExplore={vi.fn()} onFavorite={vi.fn()}/>);
+    expect(authorized).toContain(`aria-label="Remove ${repository.fullName} from RepoNavAI"`);
+    expect(member).not.toContain(`aria-label="Remove ${repository.fullName} from RepoNavAI"`);
+  });
 });

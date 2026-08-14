@@ -26,6 +26,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositoryChatSession> RepositoryChatSessions => Set<RepositoryChatSession>();
     public DbSet<RepositoryOrientationPlan> RepositoryOrientationPlans => Set<RepositoryOrientationPlan>();
     public DbSet<RepositoryFavorite> RepositoryFavorites => Set<RepositoryFavorite>();
+    public DbSet<RepositoryRemovalAudit> RepositoryRemovalAudits => Set<RepositoryRemovalAudit>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -100,6 +101,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.HasIndex(x => new { x.OrganizationId, x.Provider, x.Owner, x.Name }).IsUnique();
             entity.HasOne(x => x.Organization).WithMany(x => x.Repositories).HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RegisteredByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<RepositoryRemovalAudit>(entity =>
+        {
+            entity.ToTable("RepositoryRemovalAudits");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.Owner).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.RemovedAtUtc });
+            entity.HasIndex(x => x.RepositoryId);
         });
         builder.Entity<RepositoryFavorite>(entity =>
         {
