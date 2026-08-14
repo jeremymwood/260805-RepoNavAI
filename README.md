@@ -116,10 +116,10 @@ Known limitations and planned investments are maintained in [product steering](d
 
 ## API
 
-- `POST /api/auth/register` — create a standard user and return a JWT
-- `POST /api/auth/login` — authenticate and return a JWT
-- `GET /api/auth/me` — return the current authenticated principal
-- `GET /health` — container/service liveness
+- `POST /api/auth/register`: create a standard user and return a JWT
+- `POST /api/auth/login`: authenticate and return a JWT
+- `GET /api/auth/me`: return the current authenticated principal
+- `GET /health`: container/service liveness
 
 Tokens are stored in browser session storage for this phase. Production hardening should move to short-lived access tokens plus rotating, HttpOnly, Secure refresh cookies so sessions can be revoked without exposing long-lived credentials to JavaScript.
 
@@ -133,6 +133,8 @@ npm run lint
 npm run build
 cd ../..
 node scripts/validate-docs.mjs
+node --test scripts/validate-prose.test.mjs
+node scripts/validate-prose.mjs
 ```
 
 GitHub Actions runs these checks for pushes to `main` and pull requests.

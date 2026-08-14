@@ -35,7 +35,7 @@ The Bicep foundation emits the resource names used by these variables and create
 1. Pull request CI restores, builds, tests, lints, and builds both containers.
 2. Merge to `main` publishes API, web, worker, and migrator images tagged with the full commit SHA. The publish workflow resolves their registry digests and stores a release-manifest artifact.
 3. Staging deployment authenticates through OIDC, applies IaC drift-safe changes, runs the migration job, creates new revisions, and executes smoke tests.
-4. Production waits for environment approval and promotes the exact staging-tested digests—never a mutable `main` tag.
+4. Production waits for environment approval and promotes the exact staging-tested digests, never a mutable `main` tag.
 5. The production migration job runs once. New revisions receive no traffic until readiness checks pass.
 6. Shift a small percentage of traffic to the new web/API revisions, observe health and error budgets, then complete the rollout. The worker changes only after API compatibility is established.
 7. Record commit, digests, migration, approver, revisions, and smoke-test result in the GitHub deployment record.
