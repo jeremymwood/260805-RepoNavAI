@@ -76,6 +76,7 @@ jobs:
       - run: dotnet test RepoNavAI.sln --configuration Release --no-build
   frontend:
     runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 15
     defaults: { run: { working-directory: src/RepoNavAI.Web } }
     steps:
@@ -86,7 +87,6 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 
   containers:
