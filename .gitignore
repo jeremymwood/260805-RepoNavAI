@@ -11,6 +11,9 @@
 .idea/
 .vscode/
 coverage/
+**/test-results/
+**/playwright-report/
+**/tests/browser/*-snapshots/*-darwin.png
 .dotnet9/
 .tools/
 

@@ -4,6 +4,7 @@
 @layer base {
   :root {
     --surface: 255 255 255; --canvas: 245 247 251; --ink: 17 24 39; --shadow: 15 23 42;
+    --radius-control: .75rem; --radius-panel: 1rem; --control-height: 2.75rem;
     --slate-50: 248 250 252; --slate-100: 241 245 249; --slate-200: 226 232 240; --slate-300: 203 213 225; --slate-400: 148 163 184; --slate-500: 100 116 139; --slate-600: 71 85 105; --slate-700: 51 65 85; --slate-800: 30 41 59; --slate-900: 15 23 42; --slate-950: 2 6 23;
     --brand-50: 238 246 255; --brand-100: 217 235 255; --brand-500: 37 116 216; --brand-600: 24 95 186; --brand-700: 22 76 145;
   }
@@ -15,8 +16,34 @@
   * { box-sizing: border-box; }
   body { margin: 0; min-width: 320px; min-height: 100vh; background: rgb(var(--canvas)); color: rgb(var(--ink)); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-rendering: optimizeLegibility; }
   button,input,select,textarea { font: inherit; }
+  button,a,input,select,textarea,summary { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid rgb(var(--brand-500)); outline-offset: 2px; }
+  ::selection { background: rgb(var(--brand-100)); color: rgb(var(--ink)); }
 }
-@layer components { .eyebrow { @apply text-xs font-bold uppercase tracking-[.18em] text-brand-600; } .auth-title { @apply mt-3 text-3xl font-semibold tracking-tight text-ink; } .auth-copy { @apply mt-3 text-sm leading-6 text-slate-500; } .field { @apply flex flex-col gap-2 text-sm font-semibold text-slate-700; } .field input { @apply h-12 rounded-xl border border-slate-200 bg-white px-4 font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100; } .primary-button { @apply flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white shadow-lg shadow-brand-600/20 transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60; } .error { @apply rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700; } .icon-button { @apply grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink; } }
+@layer components {
+  .eyebrow { @apply text-xs font-bold uppercase tracking-[.18em] text-brand-600; }
+  .auth-title { @apply mt-3 text-3xl font-semibold tracking-tight text-ink; }
+  .auth-copy { @apply mt-3 text-sm leading-6 text-slate-500; }
+  .panel { @apply min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6; }
+  .panel-header { @apply flex min-w-0 items-center gap-3; }
+  .panel-icon { @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600; }
+  .field { @apply flex min-w-0 flex-col gap-2 text-sm font-semibold text-slate-700; }
+  .control { @apply min-w-0 rounded-xl border border-slate-200 bg-white px-4 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500; min-height: var(--control-height); }
+  .field input, .field select, .field textarea { @apply control; }
+  .button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60; }
+  .button-primary { @apply button bg-brand-600 text-white shadow-lg shadow-brand-600/20 hover:bg-brand-700; }
+  .button-secondary { @apply button border border-slate-200 bg-white text-brand-600 hover:border-brand-100 hover:bg-brand-50; }
+  .button-danger { @apply button text-red-600 hover:bg-red-50 hover:text-red-700; }
+  .primary-button { @apply button-primary w-full; min-height: 3rem; }
+  .icon-button { @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50; }
+  .alert { @apply min-w-0 rounded-xl border px-4 py-3 text-sm [overflow-wrap:anywhere]; }
+  .alert-error, .error { @apply alert border-red-200 bg-red-50 text-red-700; }
+  .alert-success { @apply alert border-emerald-200 bg-emerald-50 text-emerald-700; }
+  .alert-warning { @apply alert border-amber-200 bg-amber-50/60 text-amber-900; }
+  .empty-state { @apply min-w-0 rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500; }
+  .code-preview { @apply max-w-full overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-600 [overflow-wrap:anywhere]; }
+  .responsive-table { @apply max-w-full overflow-x-auto rounded-xl border border-slate-200; }
+}
 .connection-banner { @apply fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold shadow-sm; }
 .connection-banner-offline { background-color: #92400e; color: #fff7ed; }
 .connection-banner-recovered { background-color: #047857; color: #ecfdf5; }
@@ -64,6 +91,9 @@ main > *,
 #repositories article { overflow: hidden; }
 #repositories article a { min-width: 0; overflow: hidden; }
 #repository-analysis-heading { overflow-wrap: anywhere; }
+
+img,svg,video,canvas { max-width: 100%; }
+pre,code { max-width: 100%; }
 
 header.sticky { height: 5rem; }
 header.sticky > div { height: 100%; }
