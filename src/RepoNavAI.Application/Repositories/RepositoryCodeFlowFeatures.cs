@@ -1,5 +1,6 @@
 using FluentValidation;
 using MediatR;
+using System.Text.Json;
 using RepoNavAI.Application.Common.Exceptions;
 using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application.Organizations;
@@ -21,7 +22,7 @@ public sealed class GenerateCodeFlowTraceValidator : AbstractValidator<GenerateC
 
 public sealed class GenerateCodeFlowTraceHandler(IOrganizationAccess access, IRepositoryQueries repositories,
     IRepositoryOrientationStore snapshots, IEmbeddingGenerator embeddings, IVectorStore vectors,
-    IRepositoryCodeFlowGenerator generator, IRepositoryChatSessionStore sessions, ICurrentUser currentUser)
+    IRepositoryCodeFlowGenerator generator, IRepositoryChatSessionStore sessions, IRepositoryAssistantHistoryStore history, ICurrentUser currentUser)
     : IRequestHandler<GenerateCodeFlowTraceCommand, CodeFlowTraceDto>
 {
     public async Task<CodeFlowTraceDto> Handle(GenerateCodeFlowTraceCommand request, CancellationToken cancellationToken)
@@ -33,9 +34,11 @@ public sealed class GenerateCodeFlowTraceHandler(IOrganizationAccess access, IRe
             ?? throw new ConflictException("Complete repository indexing before explaining a code flow.");
         var question = request.Question.Trim();
         var sessionId = await sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, generator.Model, cancellationToken);
+        RepositoryAssistantHistory? historyEntry = null;
         var completed = false;
         try
         {
+            historyEntry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.CodeFlow, question, snapshot.CommitSha, cancellationToken);
             var retrievalQueries = new[]
             {
                 question,
@@ -52,12 +55,15 @@ public sealed class GenerateCodeFlowTraceHandler(IOrganizationAccess access, IRe
             if (sources.Length == 0) throw new ConflictException("The indexed repository does not contain enough evidence to explain that flow.");
             var draft = await generator.GenerateAsync(question, sources, cancellationToken);
             var trace = CodeFlowMapping.Map(request.RepositoryId, snapshot.CommitSha, draft, sources);
+            var stored = new StoredCodeFlowHistory(trace.SchemaVersion, trace.RepositoryId, trace.CommitSha, trace.Summary, trace.Steps, trace.MissingEvidence);
+            await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.CodeFlowV1, JsonSerializer.Serialize(stored), null, cancellationToken);
             completed = true;
             return trace;
         }
         finally
         {
             var status = completed ? RepositoryChatStatus.Completed : cancellationToken.IsCancellationRequested ? RepositoryChatStatus.Cancelled : RepositoryChatStatus.Failed;
+            if (!completed && historyEntry is not null) await history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None);
             await sessions.FinishAsync(sessionId, status, CancellationToken.None);
         }
     }

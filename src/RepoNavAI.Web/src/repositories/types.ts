@@ -65,3 +65,20 @@ export interface CodeFlowStep {
 export interface CodeFlowTrace {
   schemaVersion: string; repositoryId: string; commitSha: string; summary: string; steps: CodeFlowStep[]; missingEvidence: string[]; sources: SemanticSearchResult[];
 }
+
+export type RepositoryAssistantHistoryMode = 'Search' | 'Answer' | 'Orientation' | 'CodeFlow';
+export type RepositoryAssistantHistoryStatus = 'Processing' | 'Completed' | 'Cancelled' | 'Failed';
+export interface RepositoryAssistantHistorySummary {
+  id: string; mode: RepositoryAssistantHistoryMode; status: RepositoryAssistantHistoryStatus; prompt: string; displayTitle: string;
+  commitSha: string; schemaVersion?: string; isStarred: boolean; isStale: boolean; isSupported: boolean;
+  createdAtUtc: string; completedAtUtc?: string;
+}
+export interface RepositoryAssistantHistoryPage {
+  items: RepositoryAssistantHistorySummary[]; page: number; pageSize: number; totalCount: number; hasMore: boolean;
+}
+export interface StoredAssistantCitation {
+  path: string; startLine: number; endLine: number; commitSha: string; sourceUrl: string; score?: number; number?: number;
+}
+export interface StoredSearchHistory { results: StoredAssistantCitation[] }
+export interface StoredAnswerHistory { answer: string; citations: StoredAssistantCitation[] }
+export interface RepositoryAssistantHistoryDetail { summary: RepositoryAssistantHistorySummary; result?: StoredSearchHistory | StoredAnswerHistory | OrientationPlan | CodeFlowTrace }

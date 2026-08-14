@@ -99,7 +99,14 @@ public static class DependencyInjection
             services.AddSingleton<IRepositoryCodeFlowGenerator, UnavailableRepositoryCodeFlowGenerator>();
         }
         services.AddOptions<RepositoryChatOptions>().Bind(configuration.GetSection(RepositoryChatOptions.SectionName)).Validate(x => x.OrganizationDailyRequestLimit is >= 1 and <= 10_000, "Repository chat daily limit is outside the supported range.").ValidateOnStart();
+        services.AddOptions<RepositoryAssistantHistoryOptions>().Bind(configuration.GetSection(RepositoryAssistantHistoryOptions.SectionName))
+            .Validate(x => x.RetentionDays is >= 1 and <= 3650, "Assistant history retention must be between 1 and 3650 days.")
+            .Validate(x => x.MaximumEntriesPerUserRepository is >= 1 and <= 10_000, "Assistant history entry limit is outside the supported range.")
+            .Validate(x => x.MaximumResultBytes is >= 1024 and <= 5_242_880, "Assistant history result size is outside the supported range.")
+            .Validate(x => x.MaximumOrganizationStoredCharacters >= x.MaximumResultBytes, "Assistant history organization storage must exceed one result.")
+            .ValidateOnStart();
         services.AddScoped<IRepositoryChatSessionStore, RepositoryChatSessionStore>();
+        services.AddScoped<IRepositoryAssistantHistoryStore, RepositoryAssistantHistoryStore>();
         services.AddScoped<IRepositoryOrientationStore, RepositoryOrientationStore>();
         services.AddScoped<IVectorStore, PgVectorStore>();
         services.AddHttpClient<IRepositorySnapshotProvider, GitHubSnapshotProvider>(client =>

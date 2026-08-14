@@ -142,6 +142,62 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 
     [Fact]
+    public async Task AssistantHistory_ReopensSafeAnswerAndSupportsRenameStarAndDelete()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"History Test {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var repositoryResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/history" });
+        var repository = await repositoryResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+        await _client.PostAsJsonAsync($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/chat", new { question = "How does authentication work?" });
+
+        var history = await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history", JsonOptions);
+        var entry = history!.Items.Should().ContainSingle().Subject;
+        entry.Mode.Should().Be(RepositoryAssistantHistoryMode.Answer); entry.Status.Should().Be(RepositoryAssistantHistoryStatus.Completed);
+
+        var detail = await _client.GetStringAsync($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history/{entry.Id}");
+        detail.Should().Contain("Authentication is enforced [1].").And.Contain("src/Auth.cs").And.NotContain("auth source");
+
+        (await _client.PutAsJsonAsync($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history/{entry.Id}/star", new { isStarred = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _client.PutAsJsonAsync($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history/{entry.Id}/title", new { title = "Authentication notes" })).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        history = await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history", JsonOptions);
+        history!.Items.Single().IsStarred.Should().BeTrue(); history.Items.Single().DisplayTitle.Should().Be("Authentication notes");
+
+        (await _client.DeleteAsync($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history/{entry.Id}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history", JsonOptions))!.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssistantHistory_FromAnotherTenant_ReturnsNotFound()
+    {
+        var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/assistant/history");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task AssistantHistory_PaginatesWithStarredEntriesFirstAndRequiresClearConfirmation()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"History paging {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var repositoryResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/history-pages" });
+        var repository = await repositoryResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+        for (var index = 1; index <= 3; index++) await _client.PostAsJsonAsync($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/chat", new { question = $"Question {index}" });
+        var all = await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/assistant/history?pageSize=10", JsonOptions);
+        var starred = all!.Items.Last();
+        await _client.PutAsJsonAsync($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history/{starred.Id}/star", new { isStarred = true });
+
+        var first = await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history?page=1&pageSize=2", JsonOptions);
+        var second = await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history?page=2&pageSize=2", JsonOptions);
+        first!.TotalCount.Should().Be(3); first.HasMore.Should().BeTrue(); first.Items.First().Id.Should().Be(starred.Id);
+        second!.Items.Should().ContainSingle(); second.Items.Select(x => x.Id).Should().NotIntersectWith(first.Items.Select(x => x.Id));
+
+        var wrong = await _client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history") { Content = JsonContent.Create(new { confirmation = "clear" }) });
+        wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var cleared = await _client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history") { Content = JsonContent.Create(new { confirmation = "CLEAR" }) });
+        cleared.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _client.GetFromJsonAsync<RepositoryAssistantHistoryPage>($"/api/organizations/{organization.Id}/repositories/{repository.Id}/assistant/history", JsonOptions))!.Items.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ReindexRepository_WhenCurrentUserIsNotMember_ReturnsNotFound()
     {
         var response = await _client.PostAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/indexing/reindex", null);
@@ -235,6 +291,8 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IVectorStore>();
             services.RemoveAll<IRepositoryAnswerGenerator>();
             services.RemoveAll<IRepositoryChatSessionStore>();
+            services.RemoveAll<IRepositoryOrientationStore>();
+            services.RemoveAll<IRepositoryAssistantHistoryStore>();
             services.AddSingleton<TestOrganizationStore>();
             services.AddSingleton<IOrganizationRepository>(provider => provider.GetRequiredService<TestOrganizationStore>());
             services.AddSingleton<IOrganizationQueries>(provider => provider.GetRequiredService<TestOrganizationStore>());
@@ -247,6 +305,8 @@ public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<IVectorStore, TestVectorStore>();
             services.AddSingleton<IRepositoryAnswerGenerator, TestRepositoryAnswerGenerator>();
             services.AddSingleton<IRepositoryChatSessionStore, TestRepositoryChatSessionStore>();
+            services.AddSingleton<IRepositoryOrientationStore, TestRepositoryOrientationStore>();
+            services.AddSingleton<IRepositoryAssistantHistoryStore, TestRepositoryAssistantHistoryStore>();
             services.AddAuthentication(options => { options.DefaultAuthenticateScheme = TestAuthenticationHandler.AuthenticationScheme; options.DefaultChallengeScheme = TestAuthenticationHandler.AuthenticationScheme; })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.AuthenticationScheme, _ => { });
         });
@@ -336,4 +396,35 @@ public sealed class TestRepositoryChatSessionStore : IRepositoryChatSessionStore
 {
     public Task<Guid> StartAsync(Guid organizationId, Guid repositoryId, Guid userId, string model, CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
     public Task FinishAsync(Guid sessionId, RepositoryChatStatus status, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+public sealed class TestRepositoryOrientationStore : IRepositoryOrientationStore
+{
+    public Task<RepositorySnapshotReference?> GetLatestSnapshotAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult<RepositorySnapshotReference?>(new(Guid.NewGuid(), "abc123"));
+    public Task<RepositoryOrientationPlan?> GetLatestAsync(Guid organizationId, Guid repositoryId, Guid userId, CancellationToken cancellationToken) => Task.FromResult<RepositoryOrientationPlan?>(null);
+    public Task<RepositoryOrientationPlan?> GetAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid planId, CancellationToken cancellationToken) => Task.FromResult<RepositoryOrientationPlan?>(null);
+    public Task AddAsync(RepositoryOrientationPlan plan, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+public sealed class TestRepositoryAssistantHistoryStore : IRepositoryAssistantHistoryStore
+{
+    private readonly List<RepositoryAssistantHistory> _entries = [];
+    public Task<RepositoryAssistantHistory> StartAsync(Guid organizationId, Guid repositoryId, Guid userId, RepositoryAssistantHistoryMode mode, string prompt, string commitSha, CancellationToken cancellationToken)
+    {
+        var entry = new RepositoryAssistantHistory(organizationId, repositoryId, userId, mode, prompt, commitSha, DateTimeOffset.UtcNow); _entries.Add(entry); return Task.FromResult(entry);
+    }
+    public Task CompleteAsync(Guid historyId, string schemaVersion, string? resultJson, Guid? orientationPlanId, CancellationToken cancellationToken) { _entries.Single(x => x.Id == historyId).Complete(schemaVersion, resultJson, orientationPlanId, DateTimeOffset.UtcNow); return Task.CompletedTask; }
+    public Task FinishIncompleteAsync(Guid historyId, RepositoryAssistantHistoryStatus status, CancellationToken cancellationToken) { _entries.Single(x => x.Id == historyId).FinishIncomplete(status, DateTimeOffset.UtcNow); return Task.CompletedTask; }
+    public Task<RepositoryAssistantHistoryPage> ListAsync(Guid organizationId, Guid repositoryId, Guid userId, string? latestCommitSha, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        var scoped = _entries.Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId && x.UserId == userId).OrderByDescending(x => x.IsStarred).ThenByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).ToArray();
+        return Task.FromResult(new RepositoryAssistantHistoryPage(scoped.Skip((page - 1) * pageSize).Take(pageSize).Select(x => RepositoryAssistantHistoryMapping.ToSummary(x, latestCommitSha)).ToArray(), page, pageSize, scoped.Length));
+    }
+    public Task<RepositoryAssistantHistory?> GetAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, CancellationToken cancellationToken) => Task.FromResult(_entries.SingleOrDefault(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId && x.UserId == userId && x.Id == historyId));
+    public Task SetStarredAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, bool isStarred, CancellationToken cancellationToken) { Find(organizationId, repositoryId, userId, historyId).SetStarred(isStarred, DateTimeOffset.UtcNow); return Task.CompletedTask; }
+    public Task RenameAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, string title, CancellationToken cancellationToken) { Find(organizationId, repositoryId, userId, historyId).Rename(title, DateTimeOffset.UtcNow); return Task.CompletedTask; }
+    public Task DeleteAsync(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId, CancellationToken cancellationToken) { _entries.Remove(Find(organizationId, repositoryId, userId, historyId)); return Task.CompletedTask; }
+    public Task ClearAsync(Guid organizationId, Guid repositoryId, Guid userId, CancellationToken cancellationToken) { _entries.RemoveAll(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId && x.UserId == userId); return Task.CompletedTask; }
+    private RepositoryAssistantHistory Find(Guid organizationId, Guid repositoryId, Guid userId, Guid historyId) => _entries.Single(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId && x.UserId == userId && x.Id == historyId);
 }
