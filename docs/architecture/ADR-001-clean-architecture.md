@@ -1,6 +1,6 @@
 # ADR-001: Clean Architecture boundaries
 
-Status: Accepted — 2026-08-05
+Status: Accepted, 2026-08-05
 
 ## Context
 
