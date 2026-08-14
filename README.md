@@ -98,6 +98,8 @@ docker compose up --build
 
 Open `http://localhost:5173`. PostgreSQL data persists in the `postgres-data` volume. The API waits for PostgreSQL health, applies migrations, and seeds the configured administrator. Compose deliberately has no insecure secret defaults.
 
+Use the [read-only PostgreSQL inspection workflow](docs/operations/database-inspection.md) to examine the local database without exposing a database port or placing credentials in shell history.
+
 Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register or explicitly re-index a repository so its immutable snapshot receives embeddings. Repository chat retrieves from the latest indexed snapshot and streams a citation-grounded answer over authenticated server-sent events.
 
 ## Current product capabilities
