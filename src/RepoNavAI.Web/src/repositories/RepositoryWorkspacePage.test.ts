@@ -12,6 +12,7 @@ describe('repository workspace state', () => {
   it('only restores views backed by repository capabilities', () => {
     expect(resolveWorkspaceView('endpoints', capabilities)).toBe('endpoints');
     expect(resolveWorkspaceView('search', capabilities)).toBe('search');
+    expect(resolveWorkspaceView('architecture', capabilities)).toBe('architecture');
     expect(resolveWorkspaceView('endpoints', { ...capabilities, hasApiEndpoints: false })).toBe('summary');
     expect(resolveWorkspaceView('unknown', capabilities)).toBe('summary');
   });

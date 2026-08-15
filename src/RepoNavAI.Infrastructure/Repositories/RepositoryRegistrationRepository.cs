@@ -110,6 +110,51 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
         var languages = System.Text.Json.JsonSerializer.Deserialize<RepositoryLanguageCoverage[]>(snapshot.CoverageJson) ?? [];
         return new(hasChunks, documents.Any(item => SourceLanguageRegistry.IsExecutableLanguage(item.Language)), documents.Any(item => item.Path.Contains("test", StringComparison.OrdinalIgnoreCase)), documents.Any(item => item.Language == "markdown"), hasEndpoints, representativePaths, snapshot.CoverageStatus, languages);
     }
+
+    public async Task<RepositoryArchitectureGraphDto> GetArchitectureAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken)
+    {
+        var repository = await dbContext.RegisteredRepositories.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.Id == repositoryId)
+            .Select(x => new { x.WebUrl }).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("Repository was not found.");
+        var snapshot = await dbContext.RepositorySnapshots.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId)
+            .OrderByDescending(x => x.CreatedAtUtc).Select(x => new { x.Id, x.CommitSha }).FirstOrDefaultAsync(cancellationToken);
+        if (snapshot is null) return new("1.0", string.Empty, false, 0, [], []);
+
+        const int fileLimit = 180;
+        var allFiles = await dbContext.RepositoryDocuments.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshot.Id)
+            .OrderBy(x => x.Path).Select(x => new { x.Id, x.Path, x.Language }).ToArrayAsync(cancellationToken);
+        var files = allFiles.Take(fileLimit).ToArray();
+        var moduleNames = files.Select(x => x.Path.Contains('/') ? x.Path[..x.Path.IndexOf('/')] : "root").Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToArray();
+        var nodes = new List<RepositoryArchitectureNode>();
+        var edges = new List<RepositoryArchitectureEdge>();
+        foreach (var module in moduleNames)
+        {
+            var moduleFiles = files.Where(x => string.Equals(x.Path.Contains('/') ? x.Path[..x.Path.IndexOf('/')] : "root", module, StringComparison.OrdinalIgnoreCase)).ToArray();
+            nodes.Add(new($"module:{module}", module, "Module", null, null, moduleFiles.Length, null));
+            foreach (var file in moduleFiles)
+            {
+                var fileId = $"file:{file.Id:N}";
+                nodes.Add(new(fileId, file.Path.Split('/').Last(), "File", file.Path, file.Language, 0, $"{repository.WebUrl}/blob/{snapshot.CommitSha}/{file.Path}"));
+                edges.Add(new($"contains:{file.Id:N}", $"module:{module}", fileId, "Contains", "contains"));
+            }
+        }
+
+        var endpoints = await dbContext.RepositoryEndpoints.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshot.Id).OrderBy(x => x.Route).Take(40)
+            .Select(x => new { x.Id, x.HttpMethod, x.Route, x.Path, x.Line }).ToArrayAsync(cancellationToken);
+        foreach (var endpoint in endpoints)
+        {
+            var endpointId = $"endpoint:{endpoint.Id:N}";
+            nodes.Add(new(endpointId, $"{endpoint.HttpMethod} {endpoint.Route}", "Endpoint", endpoint.Path, null, 0, $"{repository.WebUrl}/blob/{snapshot.CommitSha}/{endpoint.Path}#L{endpoint.Line}"));
+            var file = files.FirstOrDefault(x => string.Equals(x.Path, endpoint.Path, StringComparison.Ordinal));
+            if (file is not null) edges.Add(new($"declares:{endpoint.Id:N}", $"file:{file.Id:N}", endpointId, "Declares", "declares"));
+        }
+        var totalNodeCount = allFiles.Length + moduleNames.Length + endpoints.Length;
+        return new("1.0", snapshot.CommitSha, allFiles.Length > fileLimit, totalNodeCount, nodes, edges);
+    }
 }
 
 public sealed class RepositoryFavoriteStore(AppDbContext dbContext) : IRepositoryFavoriteStore

@@ -21,6 +21,7 @@ public sealed record ReindexRepositoryCommand(Guid OrganizationId, Guid Reposito
 public sealed record RemoveRepositoryCommand(Guid OrganizationId, Guid RepositoryId, string Confirmation) : IRequest;
 public sealed record ListRepositoryEndpointsQuery(Guid OrganizationId, Guid RepositoryId, string? Method, string? Search, bool? RequiresAuthorization) : IRequest<IReadOnlyCollection<RepositoryEndpointDto>>;
 public sealed record GetRepositoryCapabilitiesQuery(Guid OrganizationId, Guid RepositoryId) : IRequest<RepositoryCapabilitiesDto>;
+public sealed record GetRepositoryArchitectureQuery(Guid OrganizationId, Guid RepositoryId) : IRequest<RepositoryArchitectureGraphDto>;
 public sealed record SemanticSearchQuery(Guid OrganizationId, Guid RepositoryId, string Query, int Limit = 10) : IRequest<IReadOnlyCollection<SemanticSearchResult>>;
 public sealed record StreamRepositoryChatQuery(Guid OrganizationId, Guid RepositoryId, string Question) : IStreamRequest<RepositoryChatEvent>;
 
@@ -168,6 +169,15 @@ public sealed class GetRepositoryCapabilitiesHandler(IOrganizationAccess access,
     {
         await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
         return await queries.GetCapabilitiesAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
+    }
+}
+
+public sealed class GetRepositoryArchitectureHandler(IOrganizationAccess access, IRepositoryQueries queries, ICurrentUser currentUser) : IRequestHandler<GetRepositoryArchitectureQuery, RepositoryArchitectureGraphDto>
+{
+    public async Task<RepositoryArchitectureGraphDto> Handle(GetRepositoryArchitectureQuery request, CancellationToken cancellationToken)
+    {
+        await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
+        return await queries.GetArchitectureAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
     }
 }
 

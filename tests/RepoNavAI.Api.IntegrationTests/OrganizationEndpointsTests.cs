@@ -111,6 +111,13 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 
     [Fact]
+    public async Task GetRepositoryArchitecture_WhenCurrentUserIsNotMember_ReturnsNotFound()
+    {
+        var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/architecture");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task SemanticSearch_WhenCurrentUserIsNotMember_ReturnsNotFound()
     {
         var response = await _client.GetAsync($"/api/organizations/{Guid.NewGuid()}/repositories/{Guid.NewGuid()}/semantic-search?query=authentication");
@@ -215,6 +222,18 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
         var response = await _client.GetAsync($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/endpoints?method=GET&search=orders&requiresAuthorization=true");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetRepositoryArchitecture_ForOrganizationMember_ReturnsVersionedGraph()
+    {
+        var organizationResponse = await _client.PostAsJsonAsync("/api/organizations", new { name = $"Architecture Test {Guid.NewGuid():N}" });
+        var organization = await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions);
+        var repositoryResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/map" });
+        var repository = await repositoryResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+        var graph = await _client.GetFromJsonAsync<RepositoryArchitectureGraphDto>($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/architecture", JsonOptions);
+        graph!.SchemaVersion.Should().Be("1.0");
+        graph.CommitSha.Should().Be("abc123");
     }
 
     [Fact]
@@ -363,6 +382,7 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Where(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId).Select(x => new IndexingRequestDto(x.Request.Id, x.Request.RepositoryId, x.Request.Status, x.Request.Checkpoint, x.Request.AttemptCount, x.Request.CommitSha, x.Request.ErrorCode, x.Request.ErrorMessage, x.Request.CreatedAtUtc, x.Request.CompletedAtUtc)).FirstOrDefault());
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryEndpointDto>>([]);
     public Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryCapabilitiesDto(false, false, false, false, false, []));
+    public Task<RepositoryArchitectureGraphDto> GetArchitectureAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryArchitectureGraphDto("1.0", "abc123", false, 0, [], []));
 }
 
 public sealed class TestRepositoryProvider : IRepositoryProvider
