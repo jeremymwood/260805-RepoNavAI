@@ -1,19 +1,21 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BookOpenCheck, Braces, ExternalLink, FileSearch, GitBranch, LockKeyhole, MinusCircle, Search, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpenCheck, Braces, ExternalLink, FileSearch, GitBranch, LockKeyhole, Map, MinusCircle, Search, Sparkles } from 'lucide-react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { api, getApiError } from '../api/client';
 import { useOrganization } from '../organizations/OrganizationContext';
 import { IndexingStatusBadge } from './IndexingStatusBadge';
 import { RepositoryAssistant } from './RepositoryAssistant';
+import { RepositoryArchitectureMap } from './RepositoryArchitectureMap';
 import type { RegisteredRepository, RepositoryEndpoint, RepositoryPage } from './types';
 
 export interface RepositoryLanguageCoverage { language: string; indexed: number; skippedUnsupported: number; skippedExcluded: number; skippedBinary: number }
 export interface RepositoryCapabilities { hasIndexedContent: boolean; hasSourceCode: boolean; hasTests: boolean; hasDocumentation: boolean; hasApiEndpoints: boolean; representativePaths: string[]; coverageStatus?: 'full' | 'partial' | 'none'; languages?: RepositoryLanguageCoverage[] }
-export type RepositoryWorkspaceView = 'summary' | 'assistant' | 'search' | 'endpoints';
+export type RepositoryWorkspaceView = 'summary' | 'architecture' | 'assistant' | 'search' | 'endpoints';
 export function resolveWorkspaceView(value: string | null, capabilities?: RepositoryCapabilities): RepositoryWorkspaceView {
   if (value === 'endpoints' && capabilities?.hasApiEndpoints) return 'endpoints';
   if (value === 'search' && capabilities?.hasIndexedContent) return 'search';
+  if (value === 'architecture' && capabilities?.hasIndexedContent) return 'architecture';
   if (value === 'assistant') return 'assistant';
   return 'summary';
 }
@@ -55,6 +57,7 @@ export function RepositoryWorkspacePage() {
     { view: 'assistant', label: 'Repository assistant', copy: 'Ask, orient, and trace flows', icon: Sparkles },
   ];
   if (capabilities.data?.hasIndexedContent) tools.push({ view: 'search', label: 'Source search', copy: 'Search indexed source evidence', icon: Search });
+  if (capabilities.data?.hasIndexedContent) tools.splice(1, 0, { view: 'architecture', label: 'Architecture map', copy: 'Navigate modules and relationships', icon: Map });
   if (capabilities.data?.hasApiEndpoints) tools.push({ view: 'endpoints', label: 'API endpoints', copy: 'Browse detected routes', icon: Braces });
   const activeTool = tools.find(tool => tool.view === activeView) ?? tools[0];
 
@@ -66,9 +69,10 @@ export function RepositoryWorkspacePage() {
     <nav aria-label="Repository tools" className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{tools.map(({ view, label, copy, icon: Icon }) => <button key={view} type="button" aria-current={activeView === view ? 'page' : undefined} onClick={() => selectView(view)} className={`flex min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-brand-500 ${activeView === view ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-100'}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><Icon size={18}/></span><span className="min-w-0"><span className="block text-sm font-semibold text-ink">{label}</span><span className="block truncate text-xs text-slate-500">{copy}</span></span></button>)}</nav>
     <section className="panel mt-4 scroll-mt-28" aria-labelledby="repository-analysis-heading">
       <h2 id="repository-analysis-heading" ref={analysisHeadingRef} tabIndex={-1} className="mb-4 text-lg font-semibold text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">{activeTool?.label ?? 'Analysis summary'}</h2>
-      {activeView === 'summary' && capabilities.data && <RepositorySummary repository={repository} capabilities={capabilities.data} onReindex={() => reindex.mutate()} reindexing={reindex.isPending}/>} 
-      {(activeView === 'assistant' || activeView === 'search') && <RepositoryAssistant key={activeView} organizationId={current!.id} repository={repository} initialMode={activeView === 'search' ? 'Search' : 'Auto'}/>} 
-      {activeView === 'endpoints' && capabilities.data?.hasApiEndpoints && <EndpointCatalog organizationId={current!.id} repository={repository}/>} 
+      {activeView === 'summary' && capabilities.data && <RepositorySummary repository={repository} capabilities={capabilities.data} onReindex={() => reindex.mutate()} reindexing={reindex.isPending}/>}
+      {activeView === 'architecture' && <RepositoryArchitectureMap organizationId={current!.id} repositoryId={repository.id}/>}
+      {(activeView === 'assistant' || activeView === 'search') && <RepositoryAssistant key={activeView} organizationId={current!.id} repository={repository} initialMode={activeView === 'search' ? 'Search' : 'Auto'}/>}
+      {activeView === 'endpoints' && capabilities.data?.hasApiEndpoints && <EndpointCatalog organizationId={current!.id} repository={repository}/>}
     </section>
   </div>;
 }
