@@ -33,8 +33,8 @@ public sealed record RepositorySnapshotData(string CommitSha, IReadOnlyCollectio
 public sealed record ParsedEndpoint(string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols);
 public sealed record RepositoryEndpointDto(Guid Id, string HttpMethod, string Route, string Handler, string Path, int Line, bool RequiresAuthorization, IReadOnlyCollection<string> DownstreamSymbols, string CommitSha, string SourceUrl);
 public sealed record RepositoryCapabilitiesDto(bool HasIndexedContent, bool HasSourceCode, bool HasTests, bool HasDocumentation, bool HasApiEndpoints, IReadOnlyCollection<string> RepresentativePaths, string CoverageStatus = "none", IReadOnlyCollection<RepositoryLanguageCoverage>? Languages = null);
-public sealed record RepositoryArchitectureNode(string Id, string Label, string Kind, string? Path, string? Language, int ChildCount, string? SourceUrl);
-public sealed record RepositoryArchitectureEdge(string Id, string SourceId, string TargetId, string Kind, string Label);
+public sealed record RepositoryArchitectureNode(string Id, string Label, string Kind, string? Path, string? Language, int ChildCount, string? SourceUrl, string Role = "Component");
+public sealed record RepositoryArchitectureEdge(string Id, string SourceId, string TargetId, string Kind, string Label, string EvidenceLevel = "Confirmed", string? SourceUrl = null);
 public sealed record RepositoryArchitectureGraphDto(string SchemaVersion, string CommitSha, bool IsTruncated, int TotalNodeCount,
     IReadOnlyCollection<RepositoryArchitectureNode> Nodes, IReadOnlyCollection<RepositoryArchitectureEdge> Edges);
 public sealed record TextChunk(int Ordinal, int StartLine, int EndLine, string Content);

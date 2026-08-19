@@ -232,7 +232,7 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
         var repositoryResponse = await _client.PostAsJsonAsync($"/api/organizations/{organization!.Id}/repositories", new { url = "https://github.com/acme/map" });
         var repository = await repositoryResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
         var graph = await _client.GetFromJsonAsync<RepositoryArchitectureGraphDto>($"/api/organizations/{organization.Id}/repositories/{repository!.Id}/architecture", JsonOptions);
-        graph!.SchemaVersion.Should().Be("1.0");
+        graph!.SchemaVersion.Should().Be("1.1");
         graph.CommitSha.Should().Be("abc123");
     }
 
@@ -382,7 +382,7 @@ public sealed class TestOrganizationStore : IOrganizationRepository, IOrganizati
     public Task<IndexingRequestDto?> GetIndexingRequestAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(_repositories.Where(x => x.Repository.OrganizationId == organizationId && x.Repository.Id == repositoryId).Select(x => new IndexingRequestDto(x.Request.Id, x.Request.RepositoryId, x.Request.Status, x.Request.Checkpoint, x.Request.AttemptCount, x.Request.CommitSha, x.Request.ErrorCode, x.Request.ErrorMessage, x.Request.CreatedAtUtc, x.Request.CompletedAtUtc)).FirstOrDefault());
     public Task<IReadOnlyCollection<RepositoryEndpointDto>> ListEndpointsAsync(Guid organizationId, Guid repositoryId, string? method, string? search, bool? requiresAuthorization, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RepositoryEndpointDto>>([]);
     public Task<RepositoryCapabilitiesDto> GetCapabilitiesAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryCapabilitiesDto(false, false, false, false, false, []));
-    public Task<RepositoryArchitectureGraphDto> GetArchitectureAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryArchitectureGraphDto("1.0", "abc123", false, 0, [], []));
+    public Task<RepositoryArchitectureGraphDto> GetArchitectureAsync(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) => Task.FromResult(new RepositoryArchitectureGraphDto("1.1", "abc123", false, 0, [], []));
 }
 
 public sealed class TestRepositoryProvider : IRepositoryProvider
