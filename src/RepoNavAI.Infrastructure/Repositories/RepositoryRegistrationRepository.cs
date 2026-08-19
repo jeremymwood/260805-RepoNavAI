@@ -120,7 +120,7 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
         var snapshot = await dbContext.RepositorySnapshots.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId)
             .OrderByDescending(x => x.CreatedAtUtc).Select(x => new { x.Id, x.CommitSha }).FirstOrDefaultAsync(cancellationToken);
-        if (snapshot is null) return new("1.0", string.Empty, false, 0, [], []);
+        if (snapshot is null) return new("1.1", string.Empty, false, 0, [], []);
 
         const int fileLimit = 180;
         var allFiles = await dbContext.RepositoryDocuments.AsNoTracking()
@@ -133,12 +133,13 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
         foreach (var module in moduleNames)
         {
             var moduleFiles = files.Where(x => string.Equals(x.Path.Contains('/') ? x.Path[..x.Path.IndexOf('/')] : "root", module, StringComparison.OrdinalIgnoreCase)).ToArray();
-            nodes.Add(new($"module:{module}", module, "Module", null, null, moduleFiles.Length, null));
+            nodes.Add(new($"module:{module}", module, "Module", null, null, moduleFiles.Length, null, "Module"));
             foreach (var file in moduleFiles)
             {
                 var fileId = $"file:{file.Id:N}";
-                nodes.Add(new(fileId, file.Path.Split('/').Last(), "File", file.Path, file.Language, 0, $"{repository.WebUrl}/blob/{snapshot.CommitSha}/{file.Path}"));
-                edges.Add(new($"contains:{file.Id:N}", $"module:{module}", fileId, "Contains", "contains"));
+                var sourceUrl = $"{repository.WebUrl}/blob/{snapshot.CommitSha}/{file.Path}";
+                nodes.Add(new(fileId, file.Path.Split('/').Last(), "File", file.Path, file.Language, 0, sourceUrl, ClassifyArchitectureRole(file.Path)));
+                edges.Add(new($"contains:{file.Id:N}", $"module:{module}", fileId, "Contains", "contains", "Confirmed", sourceUrl));
             }
         }
 
@@ -148,12 +149,27 @@ public sealed class RepositoryQueries(AppDbContext dbContext) : IRepositoryQueri
         foreach (var endpoint in endpoints)
         {
             var endpointId = $"endpoint:{endpoint.Id:N}";
-            nodes.Add(new(endpointId, $"{endpoint.HttpMethod} {endpoint.Route}", "Endpoint", endpoint.Path, null, 0, $"{repository.WebUrl}/blob/{snapshot.CommitSha}/{endpoint.Path}#L{endpoint.Line}"));
+            var sourceUrl = $"{repository.WebUrl}/blob/{snapshot.CommitSha}/{endpoint.Path}#L{endpoint.Line}";
+            nodes.Add(new(endpointId, $"{endpoint.HttpMethod} {endpoint.Route}", "Endpoint", endpoint.Path, null, 0, sourceUrl, "Endpoint"));
             var file = files.FirstOrDefault(x => string.Equals(x.Path, endpoint.Path, StringComparison.Ordinal));
-            if (file is not null) edges.Add(new($"declares:{endpoint.Id:N}", $"file:{file.Id:N}", endpointId, "Declares", "declares"));
+            if (file is not null) edges.Add(new($"declares:{endpoint.Id:N}", $"file:{file.Id:N}", endpointId, "Declares", "declares", "Confirmed", sourceUrl));
         }
         var totalNodeCount = allFiles.Length + moduleNames.Length + endpoints.Length;
-        return new("1.0", snapshot.CommitSha, allFiles.Length > fileLimit, totalNodeCount, nodes, edges);
+        return new("1.1", snapshot.CommitSha, allFiles.Length > fileLimit, totalNodeCount, nodes, edges);
+    }
+
+    private static string ClassifyArchitectureRole(string path)
+    {
+        var value = path.ToLowerInvariant();
+        if (value.Contains("controller") || value.Contains("endpoint")) return "Controller";
+        if (value.Contains("handler")) return "Handler";
+        if (value.Contains("service")) return "Service";
+        if (value.Contains("interface") || value.Contains("contract")) return "Interface";
+        if (value.Contains("repository") || value.Contains("persistence")) return "Repository";
+        if (value.Contains("worker") || value.Contains("background") || value.Contains("job")) return "Background";
+        if (value.Contains("client") || value.Contains("provider") || value.Contains("external")) return "External";
+        if (value.Contains("database") || value.Contains("dbcontext") || value.Contains("store")) return "Data store";
+        return "Component";
     }
 }
 

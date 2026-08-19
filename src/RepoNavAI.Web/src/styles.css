@@ -43,6 +43,8 @@
   .empty-state { @apply min-w-0 rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500; }
   .code-preview { @apply max-w-full overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-600 [overflow-wrap:anywhere]; }
   .responsive-table { @apply max-w-full overflow-x-auto rounded-xl border border-slate-200; }
+  .responsive-table th:first-child,
+  .responsive-table td:first-child { @apply pl-4; }
 }
 .connection-banner { @apply fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold shadow-sm; }
 .connection-banner-offline { background-color: #92400e; color: #fff7ed; }
