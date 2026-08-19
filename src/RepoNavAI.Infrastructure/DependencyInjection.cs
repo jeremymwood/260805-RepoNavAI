@@ -1,5 +1,9 @@
 using System.Text;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -40,7 +44,11 @@ public static class DependencyInjection
 
         services.AddOptions<JwtOptions>().Bind(configuration.GetSection(JwtOptions.SectionName)).ValidateDataAnnotations().Validate(x => x.SigningKey.Length >= 32, "JWT signing key must be at least 32 characters.").ValidateOnStart();
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? throw new InvalidOperationException("JWT configuration is required.");
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+        var authentication = services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        }).AddJwtBearer(options =>
         {
             options.MapInboundClaims = false;
             options.TokenValidationParameters = new TokenValidationParameters
@@ -49,7 +57,52 @@ public static class DependencyInjection
                 ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
                 ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30), RoleClaimType = System.Security.Claims.ClaimTypes.Role
             };
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    if (string.IsNullOrEmpty(context.Token) && context.Request.Cookies.TryGetValue(ExternalAuthenticationSchemes.SessionCookie, out var cookieToken)) context.Token = cookieToken;
+                    return Task.CompletedTask;
+                }
+            };
+        }).AddCookie(ExternalAuthenticationSchemes.Cookie, options =>
+        {
+            options.Cookie.Name = "RepoNavAI.External";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
         });
+        var external = configuration.GetSection(ExternalAuthenticationOptions.SectionName).Get<ExternalAuthenticationOptions>() ?? new();
+        services.Configure<ExternalAuthenticationOptions>(configuration.GetSection(ExternalAuthenticationOptions.SectionName));
+        if (external.Google.Enabled)
+            authentication.AddGoogle(ExternalAuthenticationSchemes.Google, options =>
+            {
+                options.ClientId = external.Google.ClientId; options.ClientSecret = external.Google.ClientSecret;
+                options.SignInScheme = ExternalAuthenticationSchemes.Cookie; options.CallbackPath = "/api/auth/external/signin-google"; options.SaveTokens = false;
+                options.Scope.Clear(); options.Scope.Add("openid"); options.Scope.Add("email"); options.Scope.Add("profile");
+                options.Events.OnRemoteFailure = context => RedirectExternalFailure(context, external.FrontendUrl);
+            });
+        if (external.Microsoft.Enabled)
+            authentication.AddOpenIdConnect(ExternalAuthenticationSchemes.Microsoft, options =>
+            {
+                options.Authority = "https://login.microsoftonline.com/common/v2.0";
+                options.ClientId = external.Microsoft.ClientId; options.ClientSecret = external.Microsoft.ClientSecret;
+                options.SignInScheme = ExternalAuthenticationSchemes.Cookie; options.CallbackPath = "/api/auth/external/signin-microsoft";
+                options.ResponseType = "code"; options.UsePkce = true; options.SaveTokens = false;
+                options.Scope.Clear(); options.Scope.Add("openid"); options.Scope.Add("email"); options.Scope.Add("profile");
+                options.Events.OnRemoteFailure = context => RedirectExternalFailure(context, external.FrontendUrl);
+            });
+        if (external.Apple.Enabled)
+            authentication.AddOpenIdConnect(ExternalAuthenticationSchemes.Apple, options =>
+            {
+                options.Authority = "https://appleid.apple.com"; options.ClientId = external.Apple.ClientId; options.ClientSecret = external.Apple.ClientSecret;
+                options.SignInScheme = ExternalAuthenticationSchemes.Cookie; options.CallbackPath = "/api/auth/external/signin-apple";
+                options.ResponseType = "code"; options.ResponseMode = "form_post"; options.UsePkce = true; options.SaveTokens = false;
+                options.Scope.Clear(); options.Scope.Add("openid"); options.Scope.Add("email"); options.Scope.Add("name");
+                options.TokenValidationParameters.NameClaimType = "email";
+                options.Events.OnRemoteFailure = context => RedirectExternalFailure(context, external.FrontendUrl);
+            });
         services.AddAuthorization();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddSingleton<ITokenService, TokenService>();
@@ -114,6 +167,13 @@ public static class DependencyInjection
             client.BaseAddress = new Uri("https://api.github.com/"); client.DefaultRequestHeaders.UserAgent.ParseAdd("RepoNavAI/1.0"); client.Timeout = TimeSpan.FromMinutes(2);
         });
         return services;
+    }
+
+    private static Task RedirectExternalFailure(RemoteFailureContext context, string frontendUrl)
+    {
+        context.HandleResponse();
+        context.Response.Redirect($"{frontendUrl.TrimEnd('/')}/auth/callback#error={Uri.EscapeDataString("External sign-in was cancelled or rejected.")}&return_url=%2F");
+        return Task.CompletedTask;
     }
 
     public static IServiceCollection AddRepositoryIndexingWorker(this IServiceCollection services)

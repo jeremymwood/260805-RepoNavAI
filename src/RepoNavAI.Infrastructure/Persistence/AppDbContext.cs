@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Infrastructure.Identity;
+using RepoNavAI.Infrastructure.Authentication;
 using RepoNavAI.Domain.Repositories;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -28,6 +29,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RepositoryFavorite> RepositoryFavorites => Set<RepositoryFavorite>();
     public DbSet<RepositoryRemovalAudit> RepositoryRemovalAudits => Set<RepositoryRemovalAudit>();
     public DbSet<RepositoryAssistantHistory> RepositoryAssistantHistory => Set<RepositoryAssistantHistory>();
+    public DbSet<ExternalAuthenticationCode> ExternalAuthenticationCodes => Set<ExternalAuthenticationCode>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -46,6 +48,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<IdentityUserLogin<Guid>>().ToTable("UserLogins");
         builder.Entity<IdentityRoleClaim<Guid>>().ToTable("UserRoleClaims");
         builder.Entity<IdentityUserToken<Guid>>().ToTable("UserTokens");
+        builder.Entity<ExternalAuthenticationCode>(entity =>
+        {
+            entity.ToTable("ExternalAuthenticationCodes");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CodeHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.CodeHash).IsUnique();
+            entity.HasIndex(x => x.ExpiresAtUtc);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         builder.Entity<Organization>(entity =>
         {
