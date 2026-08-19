@@ -2,7 +2,7 @@
 
 RepoNav AI is an AI-powered engineering workspace for understanding unfamiliar codebases. It is designed to explain request paths, dependencies, architecture, change impact, and technical debt with answers grounded in repository content.
 
-The functional MVP includes organization-scoped authentication and membership, verified GitHub repository registration, durable restart-safe indexing, ASP.NET endpoint discovery, pgvector semantic search with commit-pinned citations, and streamed source-grounded repository chat. A PostgreSQL-backed lease and heartbeat model recovers interrupted indexing without allowing stale workers to overwrite reclaimed jobs.
+The functional application includes organization-scoped identity and membership, local and configured external sign-in, verified GitHub repository registration, durable restart-safe indexing, polyglot source coverage, architecture exploration, ASP.NET endpoint discovery, pgvector semantic search with commit-pinned citations, guided orientation plans, cited code-flow diagrams, and streamed source-grounded repository chat. A dedicated worker uses PostgreSQL leases and heartbeats to recover interrupted indexing without allowing stale workers to overwrite reclaimed jobs.
 
 See the [product steering document](docs/product/steering.md) for the current capability matrix, limitations, product principles, active investment horizons, and risk register. GitHub Projects remains authoritative for work status; ADRs remain authoritative for durable architecture decisions.
 
@@ -10,18 +10,23 @@ See the [product steering document](docs/product/steering.md) for the current ca
 
 ```mermaid
 flowchart LR
-    Web[React + TypeScript] -->|HTTPS / JWT| API[ASP.NET Core API]
+    Web[React + TypeScript] -->|HTTPS / HttpOnly session| API[ASP.NET Core API]
     API --> App[Application\nCQRS + Validation]
     API --> Infra[Infrastructure]
+    Worker[.NET indexing worker] --> App
+    Worker --> Infra
     Infra --> App
     App --> Domain[Domain]
     Infra --> DB[(PostgreSQL)]
     Infra --> Identity[ASP.NET Identity]
+    Infra --> GitHub[GitHub repositories]
+    Infra --> OpenAI[OpenAI embeddings + chat]
+    Identity --> Providers[Google / Apple / Microsoft OIDC]
 ```
 
-Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence and identity; API is the composition root. See [ADR-001](docs/architecture/ADR-001-clean-architecture.md), [ADR-002](docs/architecture/ADR-002-organization-tenancy.md), [ADR-003](docs/architecture/ADR-003-github-repository-registration.md), [ADR-004](docs/architecture/ADR-004-durable-repository-indexing.md), [ADR-005](docs/architecture/ADR-005-api-endpoint-catalog.md), [ADR-006](docs/architecture/ADR-006-semantic-search.md), [ADR-007](docs/architecture/ADR-007-streaming-repository-chat.md), and [ADR-008](docs/architecture/ADR-008-production-hosting.md).
+Dependencies point inward. The Domain has no framework dependencies; Application defines use cases and abstractions; Infrastructure implements persistence, repository providers, AI providers, and identity; API and Worker are composition roots. See the [architecture decision records](docs/architecture/), including the clean architecture, tenant isolation, durable indexing, production hosting, infrastructure-as-code, and polyglot-analysis decisions.
 
-The selected production target is Azure Container Apps with Azure Database for PostgreSQL Flexible Server. The [production deployment strategy](docs/operations/production-deployment.md) defines environment promotion, GitHub protection, migrations, monitoring, rollback, and disaster recovery. Azure provisioning and runtime deployment remain explicit follow-up work; local development continues to use Docker Compose.
+The selected production target is Azure Container Apps with Azure Database for PostgreSQL Flexible Server. Bicep infrastructure, dedicated migration execution, container publishing, and digest-based staging/production promotion workflows are present. The [production deployment strategy](docs/operations/production-deployment.md) defines environment configuration, GitHub protection, migrations, monitoring, rollback, and disaster recovery. Local development continues to use Docker Compose.
 
 ## Public product preview
 
@@ -35,6 +40,8 @@ src/
   RepoNavAI.Application/     CQRS use cases, ports, validation
   RepoNavAI.Infrastructure/  EF Core, PostgreSQL, Identity, JWT
   RepoNavAI.Api/             HTTP API and composition root
+  RepoNavAI.Worker/          Durable repository indexing host
+  RepoNavAI.Migrator/        Dedicated database migration job
   RepoNavAI.Web/             React, TypeScript, Vite, Tailwind
 tests/
   RepoNavAI.Application.Tests/
@@ -43,6 +50,7 @@ docs/architecture/           Architecture decision records
 docs/product/                Product direction and capability status
 docs/operations/             Deployment and recovery runbooks
 docs/testing/                Manual acceptance checks
+infra/                       Azure Bicep infrastructure modules
 .github/workflows/           Continuous integration
 ```
 
@@ -113,14 +121,20 @@ Semantic search uses the pgvector-enabled PostgreSQL image. After adding an Open
 
 ## Current product capabilities
 
-- Organization creation, invitations, owner/administrator/member roles, and tenant-scoped authorization
-- Public and permitted private GitHub repository registration with durable indexing status, cancellation, retry, and re-indexing
-- Commit-pinned source snapshots, supported-file parsing, C# symbol extraction, and restart recovery within the indexing lease window
-- ASP.NET endpoint catalog with method, route, handler, authorization, downstream-symbol, and source filters
+- Local registration/login plus configured Google, Apple, and Microsoft external sign-in through secure, single-use callback exchange
+- Organization creation, invitations, owner/administrator/member roles, member administration, and tenant-scoped authorization
+- Public and permitted private GitHub repository registration with favorites, durable indexing status, cancellation, retry, re-indexing, and confirmed destructive removal
+- Commit-pinned snapshots, archive safety limits, per-language coverage reporting, extensible source analyzers, symbol extraction, and restart recovery through worker leases
+- Capability-aware repository navigation for source, documentation, tests, architecture, assistant/search, and detected API endpoints
+- Interactive commit-pinned architecture maps with Architecture, Flowchart, and Tree layouts, filtering, focus, collapse, evidence links, and accessible text fallback
+- Searchable ASP.NET endpoint catalog with method, route, handler, authorization, downstream-symbol, and source evidence
 - Semantic code search backed by OpenAI embeddings and PostgreSQL `pgvector`
 - Streamed repository explanations grounded in retrieved evidence with source citations, cancellation, and organization quotas
-- Private per-user assistant history with saved-result stars, rename, deletion, version compatibility, and commit staleness
-- A static [public product preview](https://jeremymwood.github.io/260805-RepoNavAI/) that requires no account or secrets
+- Tailored orientation plans with role, experience, focus, time budget, saved progress, and commit-staleness reporting
+- Prompted code-flow traces with validated application-owned diagrams, evidence levels, commit-pinned citations, and safe text fallback
+- Private per-user assistant history for search, answers, orientation, and code flows with stars, rename, deletion, retention limits, version compatibility, and staleness
+- Responsive light, dark, and system themes; accessible loading, outage, recovery, empty, and error states; and visual-regression coverage
+- Azure infrastructure and immutable container-promotion foundations, plus a static [public product preview](https://jeremymwood.github.io/260805-RepoNavAI/) that requires no account or secrets
 
 Known limitations and planned investments are maintained in [product steering](docs/product/steering.md), not duplicated here.
 
@@ -136,6 +150,8 @@ Known limitations and planned investments are maintained in [product steering](d
 - `GET /health`: container/service liveness
 
 The API stores its short-lived JWT in an `HttpOnly`, `SameSite=Strict` browser cookie, marked `Secure` whenever the configured frontend uses HTTPS. Provider callbacks expose only a random two-minute, single-use code; the database stores its SHA-256 hash and atomically consumes it during exchange. Provider access and refresh tokens are not retained.
+
+Google sign-in is operational when its client credentials and exact callback URL are configured. Apple and Microsoft use the same application integration but still require their provider-specific registration, credentials, and live acceptance work tracked on the project board. Existing local accounts are never silently merged with an external identity that presents the same email address.
 
 See the [external authentication operations guide](docs/operations/external-authentication.md) for provider registration, callback URLs, Apple secret rotation, and incident response.
 
@@ -159,6 +175,6 @@ Feature-level browser checks are maintained in the [manual acceptance runbook](d
 
 ## Roadmap
 
-The living [Now / Next / Later direction](docs/product/steering.md#direction) links directly to scoped GitHub work items. Near-term product investment focuses on tailored codebase orientation, capability-aware repository exploration, safe repository removal, and prompted code-flow maps with citations. Platform work then separates indexing from API scaling and provisions the selected Azure staging/production path.
+The [GitHub project](https://github.com/users/jeremymwood/projects/14) is authoritative for current priority and delivery state. The living [product steering document](docs/product/steering.md) records product principles, limitations, risks, and longer-range direction; completed capabilities are summarized here instead of repeated as future work.
 
 Organization membership is the tenant boundary. All future project and repository operations must retain the tenant-scoped authorization model documented in ADR-002.
