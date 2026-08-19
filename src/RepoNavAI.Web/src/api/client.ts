@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-export const TOKEN_KEY = 'reponav.access_token';
 export type ApiFailureKind = 'unauthorized' | 'unavailable' | 'other';
 
 export function classifyApiFailure(error: unknown): ApiFailureKind {
@@ -31,7 +30,6 @@ function markUnavailable() {
   emit('api:unavailable');
 }
 function rejectSession() {
-  sessionStorage.removeItem(TOKEN_KEY);
   record('session_rejected', 'warn');
   emit('auth:unauthorized');
 }
@@ -39,6 +37,7 @@ function rejectSession() {
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? '/api',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
   timeout: 15_000,
 });
 
@@ -51,12 +50,6 @@ export async function probeApi(): Promise<boolean> {
     return false;
   }
 }
-
-api.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem(TOKEN_KEY);
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
 
 api.interceptors.response.use((response) => {
   markAvailable();
@@ -79,12 +72,12 @@ export function getApiError(error: unknown): string {
 }
 
 export async function streamApi<T>(path: string, body: unknown, signal: AbortSignal, onEvent: (event: T) => void): Promise<void> {
-  const token = sessionStorage.getItem(TOKEN_KEY);
   let response: Response;
   try {
     response = await fetch(`${api.defaults.baseURL}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      credentials: 'same-origin',
       body: JSON.stringify(body),
       signal,
     });

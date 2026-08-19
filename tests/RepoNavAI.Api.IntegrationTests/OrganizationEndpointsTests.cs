@@ -287,7 +287,7 @@ public sealed class OrganizationEndpointsTests : IClassFixture<OrganizationApiFa
     }
 }
 
-public sealed class OrganizationApiFactory : WebApplicationFactory<Program>
+public class OrganizationApiFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

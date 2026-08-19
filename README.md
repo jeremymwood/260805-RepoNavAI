@@ -78,6 +78,10 @@ Useful configuration keys:
 | --- | --- |
 | `ConnectionStrings__DefaultConnection` | PostgreSQL connection string |
 | `Jwt__SigningKey` | JWT HMAC key, minimum 32 characters |
+| `Authentication__FrontendUrl` | Trusted browser origin used after an external provider callback |
+| `Authentication__Google__ClientId`, `Authentication__Google__ClientSecret` | Enable Google sign-in; store the secret outside source |
+| `Authentication__Apple__ClientId`, `Authentication__Apple__ClientSecret` | Enable Sign in with Apple; rotate the signed client secret before expiry |
+| `Authentication__Microsoft__ClientId`, `Authentication__Microsoft__ClientSecret` | Enable Microsoft identity platform sign-in |
 | `Admin__Email`, `Admin__Password` | Idempotent administrator seed |
 | `Cors__AllowedOrigins__0` | Trusted frontend origin |
 | `GitHub__AccessToken` | Optional locally for public repositories; required for permitted private repositories |
@@ -124,10 +128,16 @@ Known limitations and planned investments are maintained in [product steering](d
 
 - `POST /api/auth/register`: create a standard user and return a JWT
 - `POST /api/auth/login`: authenticate and return a JWT
+- `GET /api/auth/external/providers`: list configured external sign-in providers
+- `GET /api/auth/external/{provider}/challenge`: begin external sign-in
+- `POST /api/auth/external/exchange`: redeem a short-lived, single-use callback code
+- `POST /api/auth/logout`: expire the browser session cookie
 - `GET /api/auth/me`: return the current authenticated principal
 - `GET /health`: container/service liveness
 
-Tokens are stored in browser session storage for this phase. Production hardening should move to short-lived access tokens plus rotating, HttpOnly, Secure refresh cookies so sessions can be revoked without exposing long-lived credentials to JavaScript.
+The API stores its short-lived JWT in an `HttpOnly`, `SameSite=Strict` browser cookie, marked `Secure` whenever the configured frontend uses HTTPS. Provider callbacks expose only a random two-minute, single-use code; the database stores its SHA-256 hash and atomically consumes it during exchange. Provider access and refresh tokens are not retained.
+
+See the [external authentication operations guide](docs/operations/external-authentication.md) for provider registration, callback URLs, Apple secret rotation, and incident response.
 
 ## Quality checks
 

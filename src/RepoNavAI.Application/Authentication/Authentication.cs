@@ -14,6 +14,9 @@ public interface IIdentityService
     Task<bool> EmailExistsAsync(string email, CancellationToken cancellationToken);
     Task<AuthenticatedUser> CreateUserAsync(string email, string password, string displayName, CancellationToken cancellationToken);
     Task<AuthenticatedUser?> ValidateCredentialsAsync(string email, string password, CancellationToken cancellationToken);
+    Task<AuthenticatedUser> FindOrCreateExternalUserAsync(string provider, string providerKey, string email, bool emailVerified, string displayName, CancellationToken cancellationToken);
+    Task<string> CreateExternalAuthenticationCodeAsync(Guid userId, CancellationToken cancellationToken);
+    Task<AuthenticatedUser> RedeemExternalAuthenticationCodeAsync(string code, CancellationToken cancellationToken);
 }
 
 public interface ITokenService { AuthenticationResult CreateToken(AuthenticatedUser user); }
