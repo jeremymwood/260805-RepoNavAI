@@ -177,4 +177,6 @@ Feature-level browser checks are maintained in the [manual acceptance runbook](d
 
 The [GitHub project](https://github.com/users/jeremymwood/projects/14) is authoritative for current priority and delivery state. The living [product steering document](docs/product/steering.md) records product principles, limitations, risks, and longer-range direction; completed capabilities are summarized here instead of repeated as future work.
 
+The proposed [AI engineering maturity roadmap](docs/ai-engineering-roadmap.md) prioritizes tracing, a verified evaluation dataset, manual failure analysis and deterministic regression checks before read-only tools, MCP and bounded agent workflows. The [repository gap analysis](docs/ai-engineering-gap-analysis.md) distinguishes existing capabilities from missing reliability evidence, and the [first-increment issue drafts](docs/development/ai-engineering-work-items.md) define priorities, sizes, dependencies and verification. These are planned capabilities, not completed evaluation results.
+
 Organization membership is the tenant boundary. All future project and repository operations must retain the tenant-scoped authorization model documented in ADR-002.
