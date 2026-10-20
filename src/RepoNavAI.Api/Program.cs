@@ -8,11 +8,13 @@ using RepoNavAI.Application;
 using RepoNavAI.Infrastructure;
 using Serilog;
 using System.Text.Json.Serialization;
+using RepoNavAI.Infrastructure.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseSerilog((context, services, logger) => logger.ReadFrom.Configuration(context.Configuration).ReadFrom.Services(services).Enrich.FromLogContext());
+builder.Host.UseSerilog((context, services, logger) => logger.ReadFrom.Configuration(context.Configuration).ReadFrom.Services(services).Enrich.FromLogContext().Filter.With<RepositoryLogFilter>());
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddRepositoryTelemetry(builder.Configuration, "RepoNavAI.Api");
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
@@ -27,7 +29,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy => policy
     .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
-    .AllowAnyHeader().AllowAnyMethod()));
+    .AllowAnyHeader().AllowAnyMethod().WithExposedHeaders(RepositoryTracingMiddleware.RunIdHeader)));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -38,6 +40,8 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 app.UseForwardedHeaders();
+app.UseRouting();
+app.UseMiddleware<RepositoryTracingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 app.UseSerilogRequestLogging();

@@ -1,0 +1,19 @@
+# Local inspection only. No collector ports are published to the host.
+services:
+  api:
+    environment:
+      Observability__OtlpEndpoint: http://otel-collector:4318
+  worker:
+    environment:
+      Observability__OtlpEndpoint: http://otel-collector:4318
+  otel-collector:
+    image: otel/opentelemetry-collector:0.162.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    mem_limit: 256m
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"

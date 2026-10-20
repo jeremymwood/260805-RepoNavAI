@@ -1,5 +1,6 @@
 using RepoNavAI.Application.Common.Exceptions;
 using RepoNavAI.Domain.Organizations;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Application.Organizations;
 
@@ -10,7 +11,10 @@ public interface IOrganizationAccess
 
 public sealed class OrganizationAccess(IOrganizationRepository repository) : IOrganizationAccess
 {
-    public async Task<Organization> RequireAsync(Guid organizationId, Guid userId, OrganizationRole minimumRole, CancellationToken cancellationToken)
+    public Task<Organization> RequireAsync(Guid organizationId, Guid userId, OrganizationRole minimumRole, CancellationToken cancellationToken) =>
+        RepositoryDiagnostics.TraceAsync(RepositoryStage.Authorization, () => RequireCoreAsync(organizationId, userId, minimumRole, cancellationToken), cancellationToken);
+
+    private async Task<Organization> RequireCoreAsync(Guid organizationId, Guid userId, OrganizationRole minimumRole, CancellationToken cancellationToken)
     {
         var organization = await repository.GetWithMembersAsync(organizationId, cancellationToken);
         if (organization is null) throw new NotFoundException("Organization was not found.");

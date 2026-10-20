@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { classifyApiFailure } from './client';
 
 describe('API failure classification', () => {
+  it('does not report a cancelled status poll as an API outage', () => {
+    expect(classifyApiFailure(new axios.CanceledError('navigation cancelled request'))).toBe('other');
+  });
+
   it('treats a rejected token as unauthorized', () => {
     expect(classifyApiFailure(new axios.AxiosError('rejected', 'ERR_BAD_REQUEST', undefined, undefined, { status: 401 } as never))).toBe('unauthorized');
   });

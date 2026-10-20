@@ -1,6 +1,6 @@
 # RepoNavAI product steering
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-10-15
 
 ## Purpose
 
@@ -35,15 +35,21 @@ Their core jobs are:
 
 | Capability | Current state | Important limitation or source |
 | --- | --- | --- |
-| Authentication | ASP.NET Identity registration/login with JWT-protected routes | Session-storage access token is an interim local/MVP design |
+| Authentication | ASP.NET Identity with an HttpOnly JWT session cookie and configured external sign-in | Apple and Microsoft live rollout remain [#90](https://github.com/jeremymwood/260805-RepoNavAI/issues/90) and [#91](https://github.com/jeremymwood/260805-RepoNavAI/issues/91); see the [operations guide](../operations/external-authentication.md) |
 | Organizations | Creation, invitations, roles, member removal, tenant-scoped authorization | Administration depth and enterprise identity are future work; see [ADR-002](../architecture/ADR-002-organization-tenancy.md) |
 | Repository registration | Public and permitted GitHub repositories are verified, normalized, and registered per organization | GitHub App/webhook lifecycle is not implemented; see [ADR-003](../architecture/ADR-003-github-repository-registration.md) |
-| Durable indexing | PostgreSQL-backed jobs acquire pinned snapshots, parse supported source, renew leases, recover after restart, cancel, and retry | API currently hosts the worker; extraction is tracked by [#24](https://github.com/jeremymwood/260805-RepoNavAI/issues/24) |
-| Endpoint catalog | ASP.NET controller routes are searchable by method, route, and authorization | Dynamic routes and non-HTTP codebases need capability-aware exploration; see [#31](https://github.com/jeremymwood/260805-RepoNavAI/issues/31) |
-| Semantic search | OpenAI embeddings and pgvector return ranked, commit-pinned code citations | Provider rate limits need production backoff/capacity policy; retrieval quality evaluation remains small |
-| Repository chat | Authenticated SSE streams source-grounded answers with citations, cancellation, quota, and metadata-only audit | It is one-shot rather than durable multi-turn conversation; see [ADR-007](../architecture/ADR-007-streaming-repository-chat.md) |
+| Durable indexing | Dedicated Worker uses PostgreSQL jobs, pinned snapshots, leases, heartbeats, recovery, cancellation, retry and bounded archive acquisition | Distributed trace correlation and provider diagnostics remain incomplete; see the [worker runbook](../operations/indexing-worker.md) |
+| Source and endpoint discovery | Polyglot source ingestion, coverage reporting, capability-aware workspace and searchable ASP.NET endpoint catalog | Symbol extraction is C#; arbitrary language/framework semantic reference analysis is not implemented |
+| Repository lifecycle | Favorites, pagination, re-indexing and confirmed removal with derived-data cleanup | GitHub App/webhook lifecycle remains separate work |
+| Semantic search | OpenAI embeddings and pgvector return ranked sources with immutable links | No versioned quality baseline; snapshot consistency and context selection need regression cases |
+| Repository chat | Authenticated SSE answers with citations, cancellation, session quota and private saved history | One-shot generation, not a multi-step agent; grounding and repeated-run reliability are not measured |
+| Orientation and code flow | Tailored saved orientation/progress and prompted, validated flow steps with application-rendered diagrams | Valid citation indices and structured output do not establish semantic correctness |
+| Architecture maps | Commit-pinned interactive Architecture, Flowchart and Tree layouts with evidence and text fallback | Static repository evidence is not proof of complete runtime behavior |
+| Assistant history | Per-user results with stars, rename/delete, retention, schema compatibility and staleness | Saved results are not full execution traces; see [history boundaries](assistant-history.md) |
+| Frontend | Responsive themes, shared styles, loading/error/recovery states and browser visual checks | Further visual work stays separate from AI reliability foundations |
 | Public preview | GitHub Pages demonstrates the product with safe fixture data | It is read-only and has no API, database, authentication, ingestion, or AI calls |
-| Production hosting | Azure Container Apps and PostgreSQL Flexible Server are selected | Resources and runtime CD are not provisioned; see [ADR-008](../architecture/ADR-008-production-hosting.md) |
+| Production hosting | Azure target, Bicep, dedicated Migrator, immutable image publishing and promotion/rollback workflows exist | Live provisioning and operating readiness were not verified in this audit; see [deployment strategy](../operations/production-deployment.md) |
+| AI engineering reliability | Metadata-only run correlation, optional local tracing, existing acquisition metrics, and provider-independent tests | AI-01 / #95 passed local acceptance and awaits PR review/CI; datasets, repeated-run evaluation, tools and MCP follow in the [roadmap](../ai-engineering-roadmap.md). See [AI observability](../ai-observability.md) |
 
 ## Differentiators
 
@@ -51,25 +57,27 @@ RepoNavAI combines repository onboarding, code discovery, and AI explanation in 
 
 ## Direction
 
-The groups below describe investment horizons, not live execution status. Consult the [project board](https://github.com/users/jeremymwood/projects/14) for current priority and status.
+The groups below describe proposed investment horizons, not live execution status. Consult the [project board](https://github.com/users/jeremymwood/projects/14) for current priority and status. The [AI engineering audit](../ai-engineering-gap-analysis.md) supersedes the outdated foundation-work list previously recorded here.
 
 ### Now
 
-- [#35](https://github.com/jeremymwood/260805-RepoNavAI/issues/35): generate tailored repository orientation plans.
-- [#31](https://github.com/jeremymwood/260805-RepoNavAI/issues/31): make repository exploration capability-aware for non-API codebases.
-- [#32](https://github.com/jeremymwood/260805-RepoNavAI/issues/32): support safe repository deregistration and derived-data cleanup.
-- [#19](https://github.com/jeremymwood/260805-RepoNavAI/issues/19): produce prompted, cited code-flow summaries and visual maps.
+- Trace existing retrieval/generation and indexing without exporting unrestricted repository content.
+- Author a pinned 25-case evaluation dataset and record the first manually reviewed baseline before introducing agents.
+- Track a supported .NET LTS upgrade before .NET 9 support ends on November 10, 2026. See [Microsoft's policy](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) and the [draft platform work item](../development/ai-engineering-work-items.md#plat-01-upgrade-the-supported-net-runtime-and-toolchain).
+- Keep Apple/Microsoft provider rollout (#90/#91) as separate P1 work; it does not block local AI evaluation.
 
 ### Next
 
-- [#24](https://github.com/jeremymwood/260805-RepoNavAI/issues/24): separate the indexing worker from API scaling.
-- [#25](https://github.com/jeremymwood/260805-RepoNavAI/issues/25): provision the selected Azure foundation with infrastructure as code.
-- [#26](https://github.com/jeremymwood/260805-RepoNavAI/issues/26): promote immutable releases through staging and production.
-- [#21](https://github.com/jeremymwood/260805-RepoNavAI/issues/21) and [#20](https://github.com/jeremymwood/260805-RepoNavAI/issues/20): consolidate the design system, then add light, dark, and system themes.
+- Turn observed failures into deterministic evaluators, regression fixtures and small reliability fixes.
+- Make request snapshot identity, selected context, provider limits and cancellation behavior testable.
+- Introduce a small read-only tool layer and compare repeated runs against the existing one-shot baseline.
 
 ### Later
 
-- [#2](https://github.com/jeremymwood/260805-RepoNavAI/issues/2): interactive whole-repository architecture maps after dependency extraction exists.
+- Expose one or two authorized tools through MCP, then introduce bounded multi-step investigation where evaluation demonstrates value.
+- Calibrate semantic judges only where deterministic checks cannot establish correctness; publish a measured reliability case study.
+- Assess an isolated Python evaluation experiment only if it fills a demonstrated gap.
+- Preserve [#93](https://github.com/jeremymwood/260805-RepoNavAI/issues/93), [#85](https://github.com/jeremymwood/260805-RepoNavAI/issues/85) and [#77](https://github.com/jeremymwood/260805-RepoNavAI/issues/77) as separate visual investments after the AI foundations.
 - Documentation generation, technical-debt analysis, test suggestions, refactoring guidance, repository health, and administration remain roadmap themes that require scoped issues before implementation.
 
 ## Non-goals for the current horizon
@@ -87,6 +95,9 @@ The groups below describe investment horizons, not live execution status. Consul
 | Cross-tenant data exposure | Membership authorization before repository access; organization metadata on indexed records and vectors | Application/platform owner; [ADR-002](../architecture/ADR-002-organization-tenancy.md) |
 | Prompt injection or unsupported claims | Repository content delimited as untrusted evidence; plain-text output; application-created citations | AI feature owner; [ADR-007](../architecture/ADR-007-streaming-repository-chat.md) |
 | Provider rate limits and spend | Bounded batches/context/output and organization chat quota | Application/platform owner; backoff and budget guardrails must be scoped before production traffic |
+| Unmeasured or inconsistent evidence | Immutable source links, prompt bounds, structured citation validation and manual acceptance | AI feature owner; proposed context manifests, snapshot regression cases and evaluation baseline |
+| Sensitive data entering diagnostics | Private history has separate user access and content restrictions | AI/platform owner; telemetry allowlists and redaction tests must cover SDKs, HTTP metadata and exceptions |
+| Unsupported runtime | Current application targets .NET 9 | Platform owner; proposed PLAT-01 before 2026-11-10 |
 | Interrupted or duplicate indexing | Durable PostgreSQL jobs, renewable owner leases, concurrency fencing, commit uniqueness | Indexing owner; [ADR-004](../architecture/ADR-004-durable-repository-indexing.md) |
 | Production data loss or unsafe release | Managed backups/PITR, expand-contract migrations, immutable revisions, staged promotion design | Platform owner; [production deployment strategy](../operations/production-deployment.md) |
 | Documentation drift | Event-based review policy, PR checklist, and CI link/format validation | PR author and reviewer; [maintenance policy](#maintenance-policy) |

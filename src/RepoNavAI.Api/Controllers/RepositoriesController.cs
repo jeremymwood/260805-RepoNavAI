@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Http.Features;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using RepoNavAI.Application.Repositories;
+using RepoNavAI.Application.Common.Diagnostics;
+using RepoNavAI.Api.Middleware;
 
 namespace RepoNavAI.Api.Controllers;
 
@@ -19,6 +21,7 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         sender.Send(new ListRepositoriesQuery(organizationId, page, pageSize), cancellationToken);
 
     [HttpPost]
+    [TraceRepository(RepositoryOperation.Register)]
     [ProducesResponseType<RepositoryDto>(StatusCodes.Status201Created)]
     public async Task<ActionResult<RepositoryDto>> Register(Guid organizationId, RegisterRepositoryRequest request, CancellationToken cancellationToken)
     {
@@ -40,9 +43,11 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
     public async Task<IActionResult> Cancel(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new CancelIndexingCommand(organizationId, repositoryId), cancellationToken); return NoContent(); }
 
     [HttpPost("{repositoryId:guid}/indexing/retry")]
+    [TraceRepository(RepositoryOperation.Retry)]
     public async Task<IActionResult> Retry(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new RetryIndexingCommand(organizationId, repositoryId), cancellationToken); return NoContent(); }
 
     [HttpPost("{repositoryId:guid}/indexing/reindex")]
+    [TraceRepository(RepositoryOperation.Reindex)]
     public async Task<IActionResult> Reindex(Guid organizationId, Guid repositoryId, CancellationToken cancellationToken) { await sender.Send(new ReindexRepositoryCommand(organizationId, repositoryId), cancellationToken); return Accepted(); }
 
     [HttpDelete("{repositoryId:guid}")]
@@ -65,10 +70,12 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         sender.Send(new GetRepositoryArchitectureQuery(organizationId, repositoryId), cancellationToken);
 
     [HttpGet("{repositoryId:guid}/semantic-search")]
+    [TraceRepository(RepositoryOperation.Search)]
     public Task<IReadOnlyCollection<SemanticSearchResult>> SemanticSearch(Guid organizationId, Guid repositoryId, [FromQuery] string query, [FromQuery] int limit = 10, CancellationToken cancellationToken = default) =>
         sender.Send(new SemanticSearchQuery(organizationId, repositoryId, query, limit), cancellationToken);
 
     [HttpPost("{repositoryId:guid}/chat")]
+    [TraceRepository(RepositoryOperation.Answer)]
     [Produces("text/event-stream")]
     public async Task Chat(Guid organizationId, Guid repositoryId, RepositoryChatRequest request, CancellationToken cancellationToken)
     {
@@ -86,9 +93,13 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         {
             while (await stream.MoveNextAsync()) await WriteEventAsync(stream.Current, cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            RepositoryDiagnostics.Current?.Finish(RepositoryOutcome.Cancelled);
+        }
         catch (Exception exception)
         {
+            RepositoryDiagnostics.Current?.Fail(exception);
             logger.LogWarning(exception, "Repository chat stream failed for organization {OrganizationId} and repository {RepositoryId}", organizationId, repositoryId);
             if (!cancellationToken.IsCancellationRequested)
                 await WriteEventAsync(new RepositoryChatEvent(RepositoryChatEventType.Error, "The answer provider could not complete this response. Please retry."), cancellationToken);
@@ -100,6 +111,7 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         sender.Send(new GetOrientationPlanQuery(organizationId, repositoryId), cancellationToken);
 
     [HttpPost("{repositoryId:guid}/orientation-plan")]
+    [TraceRepository(RepositoryOperation.Orientation)]
     [ProducesResponseType<OrientationPlanDto>(StatusCodes.Status201Created)]
     public async Task<ActionResult<OrientationPlanDto>> CreateOrientationPlan(Guid organizationId, Guid repositoryId, CreateOrientationPlanRequest request, CancellationToken cancellationToken)
     {
@@ -112,6 +124,7 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         sender.Send(new UpdateOrientationProgressCommand(organizationId, repositoryId, planId, request.CompletedStepKeys), cancellationToken);
 
     [HttpPost("{repositoryId:guid}/code-flow")]
+    [TraceRepository(RepositoryOperation.CodeFlow)]
     public Task<CodeFlowTraceDto> GenerateCodeFlow(Guid organizationId, Guid repositoryId, GenerateCodeFlowRequest request, CancellationToken cancellationToken) =>
         sender.Send(new GenerateCodeFlowTraceCommand(organizationId, repositoryId, request.Question), cancellationToken);
 

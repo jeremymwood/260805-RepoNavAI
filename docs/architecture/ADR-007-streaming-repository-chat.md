@@ -18,6 +18,10 @@ Retrieved repository content is delimited as untrusted evidence and cannot suppl
 
 Only operational metadata is persisted: organization, repository, requesting user, model, timestamps, and terminal status. Questions, prompts, retrieved source, and model output are not stored or logged. A configurable rolling 24-hour organization request limit provides an initial cost-control boundary.
 
+### Subsequent evolution
+
+The original metadata-only persistence scope above describes the initial chat implementation. The current [private assistant history](../product/assistant-history.md) also stores user prompts, completed answers and citation metadata behind per-user authorization and retention limits. It does not store raw retrieved source or authorize recording that content in operational logs. The [AI engineering roadmap](../ai-engineering-roadmap.md) proposes separate privacy-safe execution diagnostics and explicitly enabled evaluation artifacts; those capabilities are not yet implemented.
+
 ## Consequences
 
 - Tenant authorization and retrieval complete before model generation begins.

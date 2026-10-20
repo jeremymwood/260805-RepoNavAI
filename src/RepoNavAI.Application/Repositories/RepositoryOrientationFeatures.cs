@@ -6,6 +6,7 @@ using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application.Organizations;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Domain.Repositories;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Application.Repositories;
 
@@ -47,7 +48,7 @@ public sealed class CreateOrientationPlanHandler(IOrganizationAccess access, IRe
         var embedding = (await embeddings.GenerateAsync([RetrievalPrompt + " " + request.Focus + " " + request.Objective], cancellationToken))[0];
         var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 20, cancellationToken);
         if (sources.Count == 0) throw new ConflictException("The indexed repository does not contain enough evidence for an orientation plan.");
-        var draft = await generator.GenerateAsync(profile, sources, cancellationToken);
+        var draft = await RepositoryDiagnostics.TraceAsync(RepositoryStage.Generation, () => generator.GenerateAsync(profile, sources, cancellationToken), cancellationToken);
         var stepKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var steps = draft.Steps.Take(12).Select(step =>
         {
