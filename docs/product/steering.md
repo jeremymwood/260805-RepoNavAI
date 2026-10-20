@@ -49,7 +49,7 @@ Their core jobs are:
 | Frontend | Responsive themes, shared styles, loading/error/recovery states and browser visual checks | Further visual work stays separate from AI reliability foundations |
 | Public preview | GitHub Pages demonstrates the product with safe fixture data | It is read-only and has no API, database, authentication, ingestion, or AI calls |
 | Production hosting | Azure target, Bicep, dedicated Migrator, immutable image publishing and promotion/rollback workflows exist | Live provisioning and operating readiness were not verified in this audit; see [deployment strategy](../operations/production-deployment.md) |
-| AI engineering reliability | Serilog, acquisition metrics, provider-independent tests and existing bounds provide a starting point | AI tracing, datasets, repeated-run evaluation, tools and MCP are proposed in the [new roadmap](../ai-engineering-roadmap.md) |
+| AI engineering reliability | Metadata-only run correlation, optional local tracing, existing acquisition metrics, and provider-independent tests | AI-01 / #95 passed local acceptance and awaits PR review/CI; datasets, repeated-run evaluation, tools and MCP follow in the [roadmap](../ai-engineering-roadmap.md). See [AI observability](../ai-observability.md) |
 
 ## Differentiators
 

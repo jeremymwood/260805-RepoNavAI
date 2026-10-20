@@ -3,6 +3,7 @@ import axios from 'axios';
 export type ApiFailureKind = 'unauthorized' | 'unavailable' | 'other';
 
 export function classifyApiFailure(error: unknown): ApiFailureKind {
+  if (axios.isCancel(error)) return 'other';
   if (!axios.isAxiosError(error)) return 'other';
   if (error.response?.status === 401) return 'unauthorized';
   if (!error.response || (error.response.status >= 500 && error.response.status <= 599)) return 'unavailable';

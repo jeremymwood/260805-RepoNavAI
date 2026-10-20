@@ -7,6 +7,7 @@ import { useOrganization } from '../organizations/OrganizationContext';
 import { IndexingStatusBadge } from './IndexingStatusBadge';
 import { RepositoryAssistant } from './RepositoryAssistant';
 import { RepositoryArchitectureMap } from './RepositoryArchitectureMap';
+import { indexingCompleted, indexingPollInterval, refreshRepositoryAnalysis, type RepositoryIndexState } from './repositoryWorkspaceRefresh';
 import type { RegisteredRepository, RepositoryEndpoint, RepositoryPage } from './types';
 
 export interface RepositoryLanguageCoverage { language: string; indexed: number; skippedUnsupported: number; skippedExcluded: number; skippedBinary: number }
@@ -28,10 +29,30 @@ export function focusAnalysisHeading(element: Pick<HTMLElement, 'focus' | 'scrol
 
 export function RepositoryWorkspacePage() {
   const { repositoryId } = useParams(); const { current } = useOrganization(); const location = useLocation(); const [searchParams, setSearchParams] = useSearchParams(); const queryClient = useQueryClient(); const headingRef = useRef<HTMLHeadingElement>(null); const analysisHeadingRef = useRef<HTMLHeadingElement>(null); const pendingFocusView = useRef<RepositoryWorkspaceView|null>(null); const initialAnalysisFocusHandled = useRef(false);
-  const repositories = useQuery({ queryKey: ['organization', current?.id, 'repositories', 'workspace'], queryFn: async () => (await api.get<RepositoryPage>(`/organizations/${current!.id}/repositories`, { params: { page: 1, pageSize: 50 } })).data, enabled: Boolean(current) });
+  const repositories = useQuery({
+    queryKey: ['organization', current?.id, 'repositories', 'workspace'],
+    queryFn: async ({ signal }) => (await api.get<RepositoryPage>(`/organizations/${current!.id}/repositories`, { params: { page: 1, pageSize: 50 }, signal })).data,
+    enabled: Boolean(current),
+    refetchInterval: query => indexingPollInterval(findRepository(query.state.data, repositoryId)?.indexingStatus),
+  });
   const repository = findRepository(repositories.data, repositoryId);
+  const previousIndex = useRef<RepositoryIndexState | undefined>(undefined);
+  useEffect(() => {
+    const nextIndex = current && repository ? { organizationId: current.id, repositoryId: repository.id, status: repository.indexingStatus } : undefined;
+    if (nextIndex && indexingCompleted(previousIndex.current, nextIndex)) {
+      void refreshRepositoryAnalysis(queryClient, nextIndex.organizationId, nextIndex.repositoryId);
+    }
+    previousIndex.current = nextIndex;
+  }, [current, repository, queryClient]);
   const capabilities = useQuery({ queryKey: ['repository-capabilities', current?.id, repositoryId], queryFn: async () => (await api.get<RepositoryCapabilities>(`/organizations/${current!.id}/repositories/${repositoryId}/capabilities`)).data, enabled: Boolean(current && repository?.indexingStatus === 'Completed') });
-  const reindex = useMutation({ mutationFn: () => api.post(`/organizations/${current!.id}/repositories/${repositoryId}/indexing/reindex`), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['organization', current!.id, 'repositories'] }); }, });
+  const reindex = useMutation({
+    mutationFn: ({ organizationId, id }: { organizationId: string; id: string }) => api.post(`/organizations/${organizationId}/repositories/${id}/indexing/reindex`),
+    onSuccess: async (_response, { organizationId, id }) => {
+      await queryClient.invalidateQueries({ queryKey: ['organization', organizationId, 'repositories'] });
+      // A small repository can finish before the next status request observes Pending.
+      await refreshRepositoryAnalysis(queryClient, organizationId, id);
+    },
+  });
   const activeView = resolveWorkspaceView(searchParams.get('view'), capabilities.data);
   const returnTo = typeof location.state === 'object' && location.state && 'returnTo' in location.state && typeof location.state.returnTo === 'string' ? location.state.returnTo : '/#repositories';
   useEffect(() => { headingRef.current?.focus(); }, [repositoryId]);
@@ -50,7 +71,7 @@ export function RepositoryWorkspacePage() {
   if (repositories.isLoading) return <WorkspaceState title="Loading repository workspace" copy="Retrieving the selected repository and its latest index context."/>;
   if (repositories.isError) return <WorkspaceState title="Repository unavailable" copy={getApiError(repositories.error)}/>;
   if (!repository) return <WorkspaceState title="Repository unavailable" copy="This repository was removed or is not available in the current organization."/>;
-  if (repository.indexingStatus !== 'Completed') return <WorkspaceState title={`${repository.fullName} is not ready`} copy={`Current indexing status: ${repository.indexingStatus}. Return to the overview to monitor, retry, or cancel indexing.`}/>;
+  if (repository.indexingStatus !== 'Completed') return <WorkspaceState title={`${repository.fullName} is not ready`} copy={`Current indexing status: ${repository.indexingStatus}. ${indexingPollInterval(repository.indexingStatus) ? 'Status refreshes automatically. This workspace will reopen when indexing completes. Return to the overview to cancel indexing.' : 'Return to the overview to retry indexing.'}`} liveStatus/>;
 
   const tools: Array<{ view: RepositoryWorkspaceView; label: string; copy: string; icon: typeof FileSearch }> = [
     { view: 'summary', label: 'Analysis summary', copy: 'Coverage and index context', icon: BookOpenCheck },
@@ -69,7 +90,8 @@ export function RepositoryWorkspacePage() {
     <nav aria-label="Repository tools" className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{tools.map(({ view, label, copy, icon: Icon }) => <button key={view} type="button" aria-current={activeView === view ? 'page' : undefined} onClick={() => selectView(view)} className={`flex min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-brand-500 ${activeView === view ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-100'}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><Icon size={18}/></span><span className="min-w-0"><span className="block text-sm font-semibold text-ink">{label}</span><span className="block truncate text-xs text-slate-500">{copy}</span></span></button>)}</nav>
     <section className="panel mt-4 scroll-mt-28" aria-labelledby="repository-analysis-heading">
       <h2 id="repository-analysis-heading" ref={analysisHeadingRef} tabIndex={-1} className="mb-4 text-lg font-semibold text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">{activeTool?.label ?? 'Analysis summary'}</h2>
-      {activeView === 'summary' && capabilities.data && <RepositorySummary repository={repository} capabilities={capabilities.data} onReindex={() => reindex.mutate()} reindexing={reindex.isPending}/>}
+      {activeView === 'summary' && capabilities.data && <RepositorySummary repository={repository} capabilities={capabilities.data} onReindex={() => reindex.mutate({ organizationId: current!.id, id: repository.id })} reindexing={reindex.isPending}/>}
+      {activeView === 'summary' && reindex.isError && <p className="error mt-3" role="alert">{getApiError(reindex.error)}</p>}
       {activeView === 'architecture' && <RepositoryArchitectureMap organizationId={current!.id} repositoryId={repository.id}/>}
       {(activeView === 'assistant' || activeView === 'search') && <RepositoryAssistant key={activeView} organizationId={current!.id} repository={repository} initialMode={activeView === 'search' ? 'Search' : 'Auto'}/>}
       {activeView === 'endpoints' && capabilities.data?.hasApiEndpoints && <EndpointCatalog organizationId={current!.id} repository={repository}/>}
@@ -77,7 +99,7 @@ export function RepositoryWorkspacePage() {
   </div>;
 }
 
-function WorkspaceState({ title, copy }: { title: string; copy: string }) { return <section className="panel p-8 text-center"><h1 className="break-words text-xl font-semibold text-ink">{title}</h1><p className="mt-2 text-sm text-slate-500">{copy}</p><Link to="/#repositories" className="button-secondary mt-5"><ArrowLeft size={16}/> Back to repositories</Link></section>; }
+function WorkspaceState({ title, copy, liveStatus = false }: { title: string; copy: string; liveStatus?: boolean }) { return <section className="panel p-8 text-center"><h1 className="break-words text-xl font-semibold text-ink">{title}</h1><p className="mt-2 text-sm text-slate-500" role={liveStatus ? 'status' : undefined}>{copy}</p><Link to="/#repositories" className="button-secondary mt-5"><ArrowLeft size={16}/> Back to repositories</Link></section>; }
 export function CapabilitySummary({ capabilities }: { capabilities: RepositoryCapabilities }) { const items = [['Source search', capabilities.hasIndexedContent], ['Source code', capabilities.hasSourceCode], ['Documentation', capabilities.hasDocumentation], ['Tests', capabilities.hasTests], ['API endpoints', capabilities.hasApiEndpoints]] as const; const languages = capabilities.languages?.filter(item => item.indexed + item.skippedUnsupported + item.skippedExcluded + item.skippedBinary > 0) ?? []; return <div className="mt-4"><div className="flex flex-wrap items-center gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Analysis coverage</p>{capabilities.coverageStatus && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${capabilities.coverageStatus === 'full' ? 'bg-emerald-50 text-emerald-800' : capabilities.coverageStatus === 'partial' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{capabilities.coverageStatus === 'full' ? 'Full source coverage' : capabilities.coverageStatus === 'partial' ? 'Partial source coverage' : 'No analyzable source'}</span>}</div><ul className="mt-2 flex flex-wrap gap-2">{items.map(([label, available]) => <li key={label} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${available ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{available ? <BookOpenCheck size={13}/> : <MinusCircle size={13}/>} {label}: {available ? 'Available' : 'Not detected'}</li>)}</ul>{languages.length > 0 && <div className="responsive-table mt-3"><table className="w-full text-left text-xs"><thead><tr className="text-slate-500"><th>Language</th><th>Indexed</th><th>Excluded</th><th>Binary</th><th>Unsupported</th></tr></thead><tbody>{languages.map(item => <tr key={item.language} className="border-t border-slate-100"><td className="font-semibold text-ink">{item.language}</td><td>{item.indexed}</td><td>{item.skippedExcluded}</td><td>{item.skippedBinary}</td><td>{item.skippedUnsupported}</td></tr>)}</tbody></table></div>}{!capabilities.hasSourceCode && <p className="mt-3 text-sm text-slate-600">Executable source support is limited for this index. Results may be restricted to documentation or configuration files.</p>}</div>; }
 function RepositorySummary({ repository, capabilities, onReindex, reindexing }: { repository: RegisteredRepository; capabilities: RepositoryCapabilities; onReindex: () => void; reindexing: boolean }) { return <div><p className="text-sm text-slate-500">Analysis is pinned to commit {repository.commitSha?.slice(0, 8)}. Choose a tool above to inspect evidence or ask a cited question.</p>{!capabilities.hasSourceCode && <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">Executable source support is limited for this index. Results may be restricted to documentation or configuration files.</p>}<button className="mt-5 text-xs font-semibold text-brand-600 disabled:opacity-50" disabled={reindexing} onClick={onReindex}>{reindexing ? 'Queuing re-index...' : 'Re-index this repository'}</button></div>; }
 

@@ -117,6 +117,8 @@ Open `http://localhost:5173`. PostgreSQL data persists in the `postgres-data` vo
 
 Use the [read-only PostgreSQL inspection workflow](docs/operations/database-inspection.md) to examine the local database without exposing a database port or placing credentials in shell history.
 
+Optional [AI request/indexing diagnostics](docs/ai-observability.md) provide metadata-only run IDs, timings, and local OpenTelemetry inspection. Export is off by default; the guide includes an opt-in Compose collector and the [AI-01 acceptance checks](docs/testing/manual-acceptance.md#ai-01-privacy-safe-request-and-indexing-diagnostics-95).
+
 Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register or explicitly re-index a repository so its immutable snapshot receives embeddings. Repository chat retrieves from the latest indexed snapshot and streams a citation-grounded answer over authenticated server-sent events.
 
 ## Current product capabilities

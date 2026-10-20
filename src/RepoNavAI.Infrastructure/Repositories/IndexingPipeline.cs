@@ -16,6 +16,8 @@ using Microsoft.Extensions.Options;
 using RepoNavAI.Application.Common.Exceptions;
 using RepoNavAI.Application.Repositories;
 using RepoNavAI.Domain.Repositories;
+using RepoNavAI.Application.Common.Diagnostics;
+using RepoNavAI.Infrastructure.Observability;
 using RepoNavAI.Infrastructure.Persistence;
 
 namespace RepoNavAI.Infrastructure.Repositories;
@@ -56,7 +58,10 @@ public sealed class GitHubSnapshotProvider(HttpClient httpClient, IOptions<GitHu
     private static readonly Histogram<long> SkippedFiles = Meter.CreateHistogram<long>("reponav.indexing.acquisition.skipped_files", "{file}");
     private static readonly Counter<long> Failures = Meter.CreateCounter<long>("reponav.indexing.acquisition.failures");
 
-    public async Task<RepositorySnapshotData> FetchAsync(string owner, string name, string branch, CancellationToken cancellationToken)
+    public Task<RepositorySnapshotData> FetchAsync(string owner, string name, string branch, CancellationToken cancellationToken) =>
+        RepositoryDiagnostics.TraceAsync(RepositoryStage.Acquisition, () => FetchCoreAsync(owner, name, branch, cancellationToken), cancellationToken);
+
+    private async Task<RepositorySnapshotData> FetchCoreAsync(string owner, string name, string branch, CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -287,10 +292,15 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
         db.RepositoryIndexingRequests.AnyAsync(x => x.Id == jobId && x.CancellationRequestedAtUtc != null, cancellationToken);
     public async Task PersistAsync(RepositoryIndexingRequest job, RepositorySnapshotData data, ISourceSymbolParser parser, IRepositoryEndpointAnalyzer endpointAnalyzer, ISourceChunker chunker, IEmbeddingGenerator embeddingGenerator, IVectorStore vectorStore, CancellationToken cancellationToken)
     {
-        var existing = await db.RepositorySnapshots.Include(x => x.Chunks).SingleOrDefaultAsync(x => x.RepositoryId == job.RepositoryId && x.CommitSha == data.CommitSha, cancellationToken);
+        var existing = await db.RepositorySnapshots.Include(x => x.Documents).Include(x => x.Chunks).AsSplitQuery()
+            .SingleOrDefaultAsync(x => x.OrganizationId == job.OrganizationId && x.RepositoryId == job.RepositoryId && x.CommitSha == data.CommitSha, cancellationToken);
         if (existing is not null)
         {
             ApplyCoverage(existing, data.Coverage);
+            RepositoryChunkBackfill.AddMissingChunks(existing, chunker, embeddingGenerator.Model, cancellationToken);
+            job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromSeconds(options.Value.LeaseSeconds));
+            // Persist new chunks before vector upserts query them. A retry reuses their IDs if embedding fails.
+            await db.SaveChangesAsync(cancellationToken);
             await EmbedAsync(job, existing, embeddingGenerator, vectorStore, cancellationToken);
             return;
         }
@@ -301,13 +311,8 @@ public sealed class IndexingQueueStore(AppDbContext db, TimeProvider timeProvide
             var text = Encoding.UTF8.GetString(file.Content); var hash = Convert.ToHexString(SHA256.HashData(file.Content));
             var document = new RepositoryDocument(job.OrganizationId, snapshot.Id, file.Path, file.Language, hash, file.Content.Length, text); snapshot.Documents.Add(document);
             foreach (var symbol in parser.Parse(file.Path, file.Content)) document.Symbols.Add(new RepositorySymbol(job.OrganizationId, document.Id, symbol.Name, symbol.QualifiedName, symbol.Kind, symbol.Line));
-            foreach (var chunk in chunker.Chunk(file.Path, text))
-            {
-                var chunkHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(chunk.Content)));
-                var entity = new RepositoryChunk(job.OrganizationId, snapshot.Id, document.Id, chunk.Ordinal, chunk.StartLine, chunk.EndLine, chunk.Content, chunkHash, embeddingGenerator.Model);
-                document.Chunks.Add(entity); snapshot.Chunks.Add(entity);
-            }
         }
+        RepositoryChunkBackfill.AddMissingChunks(snapshot, chunker, embeddingGenerator.Model, cancellationToken);
         foreach (var endpoint in endpointAnalyzer.Analyze(data.Files))
             snapshot.Endpoints.Add(new RepositoryEndpoint(job.OrganizationId, snapshot.Id, endpoint.HttpMethod, endpoint.Route, endpoint.Handler, endpoint.Path, endpoint.Line, endpoint.RequiresAuthorization, System.Text.Json.JsonSerializer.Serialize(endpoint.DownstreamSymbols)));
         job.Advance(IndexingCheckpoint.Persisting, timeProvider.GetUtcNow(), TimeSpan.FromSeconds(options.Value.LeaseSeconds));
@@ -349,12 +354,17 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
         {
             try { if (!await ProcessOneAsync(stoppingToken)) await Task.Delay(TimeSpan.FromSeconds(options.Value.PollSeconds), stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception exception) { logger.LogError(exception, "Indexing worker polling failed"); await Task.Delay(TimeSpan.FromSeconds(options.Value.PollSeconds), stoppingToken); }
+            catch (Exception exception) { logger.LogError("Indexing worker polling failed with category {FailureCategory}", RepositoryDiagnostics.ErrorCategory(exception, stoppingToken)); await Task.Delay(TimeSpan.FromSeconds(options.Value.PollSeconds), stoppingToken); }
         }
     }
     private async Task<bool> ProcessOneAsync(CancellationToken cancellationToken)
     {
         using var scope = scopes.CreateScope(); var store = scope.ServiceProvider.GetRequiredService<IndexingQueueStore>(); var leaseOwnerId = Guid.NewGuid(); var claim = await store.ClaimAsync(leaseOwnerId, cancellationToken); if (claim is null) return false; var job = claim.Job;
+        using var run = RepositoryDiagnostics.Start(RepositoryOperation.Indexing, cancellationToken);
+        run.LinkJob(job.Id, job.AttemptCount);
+        var runLog = scope.ServiceProvider.GetRequiredService<RepositoryRunLog>();
+        using var logScope = runLog.BeginScope(run);
+        runLog.Started(run);
         if (claim.RecoveryDelaySeconds is { } recoverySeconds)
         {
             RecoveryLatency.Record(recoverySeconds);
@@ -366,27 +376,31 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
         var cancellationMonitor = MonitorCancellationAsync(job.Id, processing, () => cancellationRequested = true, cancellationToken);
         try
         {
-            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); return true; }
+            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); run.Finish(RepositoryOutcome.Cancelled); return true; }
             var provider = scope.ServiceProvider.GetRequiredService<IRepositorySnapshotProvider>(); var parser = scope.ServiceProvider.GetRequiredService<ISourceSymbolParser>(); var endpointAnalyzer = scope.ServiceProvider.GetRequiredService<IRepositoryEndpointAnalyzer>(); var chunker = scope.ServiceProvider.GetRequiredService<ISourceChunker>(); var embeddingGenerator = scope.ServiceProvider.GetRequiredService<IEmbeddingGenerator>(); var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
             var data = await provider.FetchAsync(job.Repository.Owner, job.Repository.Name, job.Repository.DefaultBranch, processing.Token);
             await store.RefreshAsync(job, processing.Token);
             if (job.LeaseOwnerId != leaseOwnerId) throw new DbUpdateConcurrencyException("The indexing lease is no longer owned by this worker.");
-            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); return true; }
+            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); run.Finish(RepositoryOutcome.Cancelled); return true; }
             job.Advance(IndexingCheckpoint.Parsing, timeProvider.GetUtcNow(), TimeSpan.FromSeconds(options.Value.LeaseSeconds), data.CommitSha); await store.SaveChangesAsync(processing.Token);
-            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); return true; }
+            if (job.IsCancellationRequested) { job.Cancel(timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token); run.Finish(RepositoryOutcome.Cancelled); return true; }
             await store.PersistAsync(job, data, parser, endpointAnalyzer, chunker, embeddingGenerator, vectorStore, processing.Token); job.Complete(data.CommitSha, timeProvider.GetUtcNow()); await store.SaveChangesAsync(processing.Token);
+            run.Finish(RepositoryOutcome.Completed);
         }
         catch (OperationCanceledException) when (cancellationRequested)
         {
             await store.RefreshAsync(job, CancellationToken.None);
             job.Cancel(timeProvider.GetUtcNow());
             await store.SaveChangesAsync(CancellationToken.None);
+            run.Finish(RepositoryOutcome.Cancelled);
             logger.LogInformation("Indexing job {JobId} was cancelled", job.Id);
         }
-        catch (OperationCanceledException) when (leaseLost) { logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} lost its lease", job.Id, leaseOwnerId); }
-        catch (DbUpdateConcurrencyException) { leaseLost = true; logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} no longer owns the lease", job.Id, leaseOwnerId); }
+        catch (OperationCanceledException) when (leaseLost) { run.Finish(RepositoryOutcome.LeaseLost); logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} lost its lease", job.Id, leaseOwnerId); }
+        catch (DbUpdateConcurrencyException) { run.Finish(RepositoryOutcome.LeaseLost); leaseLost = true; logger.LogWarning("Indexing job {JobId} stopped because worker {LeaseOwnerId} no longer owns the lease", job.Id, leaseOwnerId); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { run.Finish(RepositoryOutcome.Deferred); throw; }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            run.Fail(exception);
             var acquisition = exception as RepositoryAcquisitionException;
             var code = acquisition?.Code ?? "INDEXING_FAILED";
             var message = acquisition?.SafeMessage ?? "Repository indexing failed. Retry the job or check provider access and repository limits.";
@@ -394,7 +408,15 @@ public sealed class RepositoryIndexingWorker(IServiceScopeFactory scopes, TimePr
             logger.LogWarning("Indexing job {JobId} failed with {ErrorType} and category {FailureCategory}", job.Id, exception.GetType().Name, code);
             job.Fail(code, message, timeProvider.GetUtcNow(), maximumAttempts); await store.SaveChangesAsync(cancellationToken);
         }
-        finally { await processing.CancelAsync(); await Task.WhenAll(heartbeat, cancellationMonitor); }
+        finally
+        {
+            try { await processing.CancelAsync(); await Task.WhenAll(heartbeat, cancellationMonitor); }
+            finally
+            {
+                if (run.Outcome == RepositoryOutcome.Running) run.Finish(RepositoryOutcome.Failed);
+                runLog.Finished(run);
+            }
+        }
         return true;
     }
 

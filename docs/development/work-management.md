@@ -17,9 +17,13 @@ New items enter `Backlog`. During triage, set:
 
 Only actively owned work should be `In progress`. Pull requests must link their issue using `Closes #123` when they complete the item.
 
+## Work-item handoff
+
+At the end of each implementation item, provide exact local startup/rebuild commands, the URL and required configuration, numbered manual tests with observable pass criteria, and the automated checks actually run. Note unverified cases and environment limitations explicitly. Add reusable checks to the [manual acceptance runbook](../testing/manual-acceptance.md), linking a feature-specific guide where useful. Wait for acceptance/review before beginning the next item; do not imply that passing mocked tests validates live provider behavior.
+
 ## Continuous integration
 
-Every pull request and push to `main` runs backend restore/build/tests, frontend lint/build, and non-publishing container builds. Workflow permissions default to read-only, concurrent obsolete CI runs are canceled, and jobs have bounded timeouts.
+Every pull request and push to `main` runs backend restore/build/tests, frontend production-dependency audit/lint/tests/build, and non-publishing container builds. The production audit must report zero advisories; registry failures also fail the gate. The full dependency audit is still tracked separately under [Tailwind security maintenance (#96)](https://github.com/jeremymwood/260805-RepoNavAI/issues/96), not silently waived by this production-only check. Workflow permissions default to read-only, concurrent obsolete CI runs are canceled, and jobs have bounded timeouts.
 
 ## Artifact delivery
 

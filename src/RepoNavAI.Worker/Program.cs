@@ -4,10 +4,12 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using RepoNavAI.Infrastructure;
 using RepoNavAI.Infrastructure.Persistence;
 using Serilog;
+using RepoNavAI.Infrastructure.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseSerilog((context, services, logger) => logger.ReadFrom.Configuration(context.Configuration).ReadFrom.Services(services).Enrich.FromLogContext());
+builder.Host.UseSerilog((context, services, logger) => logger.ReadFrom.Configuration(context.Configuration).ReadFrom.Services(services).Enrich.FromLogContext().Filter.With<RepositoryLogFilter>());
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddRepositoryTelemetry(builder.Configuration, "RepoNavAI.Worker");
 builder.Services.AddRepositoryIndexingWorker();
 builder.Services.AddHealthChecks().AddCheck<DatabaseReadinessCheck>("database", tags: ["ready"]);
 

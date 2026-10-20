@@ -6,6 +6,7 @@ using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application.Organizations;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Domain.Repositories;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Application.Repositories;
 
@@ -53,7 +54,7 @@ public sealed class GenerateCodeFlowTraceHandler(IOrganizationAccess access, IRe
                 .GroupBy(x => x.ChunkId).Select(group => group.OrderByDescending(x => x.Score).First())
                 .OrderByDescending(x => x.Score).Take(20).ToArray();
             if (sources.Length == 0) throw new ConflictException("The indexed repository does not contain enough evidence to explain that flow.");
-            var draft = await generator.GenerateAsync(question, sources, cancellationToken);
+            var draft = await RepositoryDiagnostics.TraceAsync(RepositoryStage.Generation, () => generator.GenerateAsync(question, sources, cancellationToken), cancellationToken);
             var trace = CodeFlowMapping.Map(request.RepositoryId, snapshot.CommitSha, draft, sources);
             var stored = new StoredCodeFlowHistory(trace.SchemaVersion, trace.RepositoryId, trace.CommitSha, trace.Summary, trace.Steps, trace.MissingEvidence);
             await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.CodeFlowV1, JsonSerializer.Serialize(stored), null, cancellationToken);

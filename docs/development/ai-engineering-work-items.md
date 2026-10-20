@@ -1,10 +1,12 @@
 # AI engineering: first-increment issue drafts
 
-Prepared 2026-10-15 against `bc5efb6c52899776ccfdaf9dd59e58830f1fd36d`. These are proposed issues, not published GitHub work items. See the [roadmap](../ai-engineering-roadmap.md) for later increments and the [audit](../ai-engineering-gap-analysis.md) for code evidence.
+Prepared 2026-10-15 against `bc5efb6c52899776ccfdaf9dd59e58830f1fd36d`. AI-01 is published as [#95](https://github.com/jeremymwood/260805-RepoNavAI/issues/95) and is in progress (P1 / M). Remaining entries are issue drafts. See the [roadmap](../ai-engineering-roadmap.md) for later increments and the [audit](../ai-engineering-gap-analysis.md) for code evidence.
 
 Use the [existing intake process](work-management.md). On publication, replace proposal dependencies with GitHub issue links, add each issue to Project 14, and set **both** Priority and Size fields as well as matching labels. The intake workflow adds an item but does not assign those fields. Keep status Backlog until work starts; do not mark this entire initiative In progress. No duplicate tracing/eval issue was found in the open-issue query on the preparation date; recheck before publishing.
 
 ## AI-01: Trace AI requests and indexing attempts without exposing content
+
+Implementation and local verification: [AI observability](../ai-observability.md). Manual acceptance completed on 2026-10-19; #95 awaits pull-request review and CI before closing.
 
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`.
 

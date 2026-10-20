@@ -10,6 +10,7 @@ using Pgvector.EntityFrameworkCore;
 using RepoNavAI.Application.Common.Exceptions;
 using RepoNavAI.Application.Repositories;
 using RepoNavAI.Infrastructure.Persistence;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Infrastructure.Repositories;
 
@@ -55,7 +56,10 @@ public sealed class OpenAIEmbeddingGenerator(HttpClient httpClient, IOptions<Ope
     public int Dimensions => options.Value.EmbeddingDimensions;
     public bool IsConfigured => !string.IsNullOrWhiteSpace(options.Value.ApiKey);
 
-    public async Task<IReadOnlyList<float[]>> GenerateAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<float[]>> GenerateAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken) =>
+        RepositoryDiagnostics.TraceAsync(RepositoryStage.Embedding, () => GenerateCoreAsync(inputs, cancellationToken), cancellationToken);
+
+    private async Task<IReadOnlyList<float[]>> GenerateCoreAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken)
     {
         if (!IsConfigured) throw new ExternalServiceException("Semantic search is not configured. Add an OpenAI API key and re-index the repository.");
         using var request = new HttpRequestMessage(HttpMethod.Post, "embeddings") { Content = JsonContent.Create(new EmbeddingRequest(Model, inputs, Dimensions)) };
@@ -84,7 +88,10 @@ public sealed class PgVectorStore(AppDbContext db) : IVectorStore
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyCollection<SemanticSearchResult>> SearchAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken)
+    public Task<IReadOnlyCollection<SemanticSearchResult>> SearchAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken) =>
+        RepositoryDiagnostics.TraceAsync(RepositoryStage.Retrieval, () => SearchCoreAsync(organizationId, repositoryId, query, limit, cancellationToken), cancellationToken);
+
+    private async Task<IReadOnlyCollection<SemanticSearchResult>> SearchCoreAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken)
     {
         var snapshotId = await db.RepositorySnapshots.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId).OrderByDescending(x => x.CreatedAtUtc).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken);
         if (snapshotId is null) return [];

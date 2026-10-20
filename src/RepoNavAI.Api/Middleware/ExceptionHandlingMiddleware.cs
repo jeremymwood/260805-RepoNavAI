@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using RepoNavAI.Application.Common.Exceptions;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Api.Middleware;
 
@@ -11,6 +12,12 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         try { await next(context); }
         catch (Exception exception)
         {
+            RepositoryDiagnostics.Current?.Fail(exception);
+            if (exception is OperationCanceledException && context.RequestAborted.IsCancellationRequested)
+            {
+                if (!context.Response.HasStarted) context.Response.StatusCode = 499;
+                return;
+            }
             var (status, title, errors) = exception switch
             {
                 ValidationException validation => (StatusCodes.Status400BadRequest, "Validation failed", validation.Errors.GroupBy(x => x.PropertyName).ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray()) as object),

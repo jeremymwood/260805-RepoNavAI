@@ -8,6 +8,7 @@ using RepoNavAI.Application.Common.Identity;
 using RepoNavAI.Application.Organizations;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Domain.Repositories;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Application.Repositories;
 
@@ -64,6 +65,7 @@ public sealed class RegisterRepositoryHandler(IOrganizationAccess access, IRepos
         var indexingRequest = new RepositoryIndexingRequest(request.OrganizationId, registered.Id, currentUser.UserId);
         await repository.AddAsync(registered, indexingRequest, cancellationToken);
         await repository.SaveChangesAsync(cancellationToken);
+        RepositoryDiagnostics.Current?.LinkJob(indexingRequest.Id);
         return new RepositoryDto(registered.Id, registered.OrganizationId, registered.Owner, registered.Name, registered.FullName, registered.DefaultBranch, registered.Visibility, registered.WebUrl, indexingRequest.Status, registered.CreatedAtUtc);
     }
 }
@@ -118,6 +120,7 @@ public sealed class RetryIndexingHandler(IOrganizationAccess access, IIndexingRe
         var job = await repository.GetLatestAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
         if (job is null || job.OrganizationId != request.OrganizationId) throw new NotFoundException("Repository was not found.");
         job.Retry(); await repository.SaveChangesAsync(cancellationToken);
+        RepositoryDiagnostics.Current?.LinkJob(job.Id);
     }
 }
 
@@ -129,8 +132,10 @@ public sealed class ReindexRepositoryHandler(IOrganizationAccess access, IReposi
         if (!await queries.ExistsAsync(request.OrganizationId, request.RepositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
         var current = await jobs.GetLatestAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
         if (current is { Status: IndexingRequestStatus.Pending or IndexingRequestStatus.Processing }) throw new ConflictException("Repository indexing is already in progress.");
-        await jobs.AddAsync(new RepositoryIndexingRequest(request.OrganizationId, request.RepositoryId, currentUser.UserId), cancellationToken);
+        var job = new RepositoryIndexingRequest(request.OrganizationId, request.RepositoryId, currentUser.UserId);
+        await jobs.AddAsync(job, cancellationToken);
         await jobs.SaveChangesAsync(cancellationToken);
+        RepositoryDiagnostics.Current?.LinkJob(job.Id);
     }
 }
 
@@ -246,7 +251,7 @@ public sealed class StreamRepositoryChatHandler(
                 answer.Append(insufficient); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, insufficient);
             }
             else
-                await foreach (var delta in answers.StreamAsync(question, sources, cancellationToken).WithCancellation(cancellationToken))
+                await foreach (var delta in RepositoryDiagnostics.TraceStream(RepositoryStage.Generation, answers.StreamAsync(question, sources, cancellationToken), cancellationToken))
                     if (!string.IsNullOrEmpty(delta)) { answer.Append(delta); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, delta); }
 
             completed = true;

@@ -69,6 +69,19 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: reponav_backfill_tests
+          POSTGRES_USER: reponav_test
+          POSTGRES_PASSWORD: test-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U reponav_test -d reponav_backfill_tests"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      REPONAV_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=reponav_backfill_tests;Username=reponav_test;Password=test-only-password
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -86,10 +99,12 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 22, cache: npm, cache-dependency-path: src/RepoNavAI.Web/package-lock.json }
       - run: npm ci
+      - run: npm run audit:production
       - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npm run test:e2e
+      - run: npm run test:e2e:workspace
 
   containers:
     runs-on: ubuntu-latest
