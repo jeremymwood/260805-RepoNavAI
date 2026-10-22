@@ -430,11 +430,16 @@ public sealed class TestRepositoryOrientationStore : IRepositoryOrientationStore
 public sealed class TestRepositoryAssistantHistoryStore : IRepositoryAssistantHistoryStore
 {
     private readonly List<RepositoryAssistantHistory> _entries = [];
+    public Exception? CompletionFailure { get; init; }
     public Task<RepositoryAssistantHistory> StartAsync(Guid organizationId, Guid repositoryId, Guid userId, RepositoryAssistantHistoryMode mode, string prompt, string commitSha, CancellationToken cancellationToken)
     {
         var entry = new RepositoryAssistantHistory(organizationId, repositoryId, userId, mode, prompt, commitSha, DateTimeOffset.UtcNow); _entries.Add(entry); return Task.FromResult(entry);
     }
-    public Task CompleteAsync(Guid historyId, string schemaVersion, string? resultJson, Guid? orientationPlanId, CancellationToken cancellationToken) { _entries.Single(x => x.Id == historyId).Complete(schemaVersion, resultJson, orientationPlanId, DateTimeOffset.UtcNow); return Task.CompletedTask; }
+    public Task CompleteAsync(Guid historyId, string schemaVersion, string? resultJson, Guid? orientationPlanId, CancellationToken cancellationToken)
+    {
+        if (CompletionFailure is not null) throw CompletionFailure;
+        _entries.Single(x => x.Id == historyId).Complete(schemaVersion, resultJson, orientationPlanId, DateTimeOffset.UtcNow); return Task.CompletedTask;
+    }
     public Task FinishIncompleteAsync(Guid historyId, RepositoryAssistantHistoryStatus status, CancellationToken cancellationToken) { _entries.Single(x => x.Id == historyId).FinishIncomplete(status, DateTimeOffset.UtcNow); return Task.CompletedTask; }
     public Task<RepositoryAssistantHistoryPage> ListAsync(Guid organizationId, Guid repositoryId, Guid userId, string? latestCommitSha, int page, int pageSize, CancellationToken cancellationToken)
     {

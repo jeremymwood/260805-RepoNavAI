@@ -194,18 +194,20 @@ public sealed class SemanticSearchHandler(IOrganizationAccess access, IRepositor
         await access.RequireAsync(request.OrganizationId, currentUser.UserId, OrganizationRole.Member, cancellationToken);
         if (!await repositories.ExistsAsync(request.OrganizationId, request.RepositoryId, cancellationToken)) throw new NotFoundException("Repository was not found.");
         var latest = await snapshots.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken);
-        var entry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Search, request.Query, latest?.CommitSha ?? string.Empty, cancellationToken);
+        RepositoryDiagnostics.Current?.ExpectSnapshot(latest);
+        var entry = await RepositoryDiagnostics.PersistAsync(() => history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Search, request.Query, latest?.CommitSha ?? string.Empty, cancellationToken), cancellationToken);
         try
         {
             var query = (await embeddings.GenerateAsync([request.Query.Trim()], cancellationToken))[0];
             var results = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, query, request.Limit, cancellationToken);
+            if (results.Count == 0) RepositoryDiagnostics.Current?.RecordResult(RepositoryResult.EmptyEvidence);
             var stored = new StoredSearchHistory(results.Select(x => new StoredAssistantCitation(x.Path, x.StartLine, x.EndLine, x.CommitSha, x.SourceUrl, x.Score)).ToArray());
-            await history.CompleteAsync(entry.Id, RepositoryAssistantHistorySchemas.SearchV1, JsonSerializer.Serialize(stored), null, cancellationToken);
+            await RepositoryDiagnostics.PersistAsync(() => history.CompleteAsync(entry.Id, RepositoryAssistantHistorySchemas.SearchV1, JsonSerializer.Serialize(stored), null, cancellationToken), cancellationToken);
             return results;
         }
         catch
         {
-            await history.FinishIncompleteAsync(entry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None); throw;
+            await RepositoryDiagnostics.PersistAsync(() => history.FinishIncompleteAsync(entry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None), CancellationToken.None); throw;
         }
     }
 }
@@ -233,13 +235,14 @@ public sealed class StreamRepositoryChatHandler(
         var question = request.Question.Trim();
         var snapshot = await snapshots.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken)
             ?? throw new ConflictException("Complete repository indexing before asking a repository question.");
-        var sessionId = await sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, answers.Model, cancellationToken);
+        RepositoryDiagnostics.Current?.ExpectSnapshot(snapshot);
+        var sessionId = await RepositoryDiagnostics.PersistAsync(() => sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, answers.Model, cancellationToken), cancellationToken);
         RepositoryAssistantHistory? historyEntry = null;
         var completed = false;
         var answer = new StringBuilder(); RepositoryChatCitation[] citations = [];
         try
         {
-            historyEntry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Answer, question, snapshot.CommitSha, cancellationToken);
+            historyEntry = await RepositoryDiagnostics.PersistAsync(() => history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Answer, question, snapshot.CommitSha, cancellationToken), cancellationToken);
             var embedding = (await embeddings.GenerateAsync([question], cancellationToken))[0];
             var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 8, cancellationToken);
             citations = sources.Select((source, index) => new RepositoryChatCitation(index + 1, source.Path, source.StartLine, source.EndLine, source.CommitSha, source.SourceUrl, source.Score)).ToArray();
@@ -247,12 +250,14 @@ public sealed class StreamRepositoryChatHandler(
 
             if (sources.Count == 0)
             {
+                RepositoryDiagnostics.Current?.RecordResult(RepositoryResult.EmptyEvidence);
                 const string insufficient = "I could not find enough indexed repository evidence to answer that question.";
+                RepositoryDiagnostics.Current?.MarkOutputStarted();
                 answer.Append(insufficient); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, insufficient);
             }
             else
                 await foreach (var delta in RepositoryDiagnostics.TraceStream(RepositoryStage.Generation, answers.StreamAsync(question, sources, cancellationToken), cancellationToken))
-                    if (!string.IsNullOrEmpty(delta)) { answer.Append(delta); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, delta); }
+                    if (!string.IsNullOrEmpty(delta)) { RepositoryDiagnostics.Current?.MarkOutputStarted(); answer.Append(delta); yield return new RepositoryChatEvent(RepositoryChatEventType.Delta, delta); }
 
             completed = true;
             yield return new RepositoryChatEvent(RepositoryChatEventType.Completed);
@@ -263,10 +268,10 @@ public sealed class StreamRepositoryChatHandler(
             if (historyEntry is not null && completed)
             {
                 var stored = new StoredAnswerHistory(answer.ToString(), citations.Select(x => new StoredAssistantCitation(x.Path, x.StartLine, x.EndLine, x.CommitSha, x.SourceUrl, x.Score, x.Number)).ToArray());
-                await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.AnswerV1, JsonSerializer.Serialize(stored), null, CancellationToken.None);
+                await RepositoryDiagnostics.PersistAsync(() => history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.AnswerV1, JsonSerializer.Serialize(stored), null, CancellationToken.None), CancellationToken.None);
             }
-            else if (historyEntry is not null) await history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None);
-            await sessions.FinishAsync(sessionId, status, CancellationToken.None);
+            else if (historyEntry is not null) await RepositoryDiagnostics.PersistAsync(() => history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None), CancellationToken.None);
+            await RepositoryDiagnostics.PersistAsync(() => sessions.FinishAsync(sessionId, status, CancellationToken.None), CancellationToken.None);
         }
     }
 }

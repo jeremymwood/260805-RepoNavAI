@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Pgvector;
 using RepoNavAI.Application.Common.Exceptions;
+using RepoNavAI.Application.Common.Diagnostics;
 using RepoNavAI.Application.Repositories;
 using RepoNavAI.Domain.Organizations;
 using RepoNavAI.Domain.Repositories;
@@ -117,10 +118,21 @@ public sealed class RepositoryChunkBackfillPersistenceTests(BackfillPostgresFixt
 
     private static async Task AssertSearchableAsync(AppDbContext db, RepositoryIndexingRequest job, int expected)
     {
+        using var run = RepositoryDiagnostics.Start(RepositoryOperation.Search);
         var store = new PgVectorStore(db);
         var matches = await store.SearchAsync(job.OrganizationId, job.RepositoryId, TestEmbeddings.Vector(), 10, CancellationToken.None);
         matches.Should().HaveCount(expected).And.OnlyContain(x => x.CommitSha == Commit);
+        var manifest = run.Retrievals.Single();
+        manifest.SnapshotId.Should().Be(await db.RepositorySnapshots.Where(x => x.RepositoryId == job.RepositoryId).Select(x => x.Id).SingleAsync());
+        manifest.CommitSha.Should().Be(Commit);
+        manifest.QueryDimensions.Should().Be(512);
+        manifest.Candidates.Select(x => x.ChunkId).Should().Equal(matches.Select(x => x.ChunkId));
+        manifest.Candidates.Select(x => x.Score).Should().Equal(matches.Select(x => (double?)x.Score));
+        manifest.IndexedEmbeddingModels.Should().ContainSingle();
         (await store.SearchAsync(Guid.NewGuid(), job.RepositoryId, TestEmbeddings.Vector(), 10, CancellationToken.None)).Should().BeEmpty();
+        run.Retrievals.Last().SnapshotId.Should().BeNull();
+        run.Retrievals.Last().Candidates.Should().BeEmpty();
+        run.Finish(RepositoryOutcome.Completed);
     }
 
     private static async Task<RepositoryIndexingRequest> SeedAsync(AppDbContext db, int documents, bool legacySnapshot = true)

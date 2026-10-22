@@ -95,10 +95,12 @@ public sealed class RepositoriesController(ISender sender, ILogger<RepositoriesC
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (Response.HasStarted) RepositoryDiagnostics.Current?.MarkResponseStarted();
             RepositoryDiagnostics.Current?.Finish(RepositoryOutcome.Cancelled);
         }
         catch (Exception exception)
         {
+            if (Response.HasStarted) RepositoryDiagnostics.Current?.MarkResponseStarted();
             RepositoryDiagnostics.Current?.Fail(exception);
             logger.LogWarning(exception, "Repository chat stream failed for organization {OrganizationId} and repository {RepositoryId}", organizationId, repositoryId);
             if (!cancellationToken.IsCancellationRequested)

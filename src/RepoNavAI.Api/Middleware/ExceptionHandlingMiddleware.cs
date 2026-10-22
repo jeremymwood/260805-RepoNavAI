@@ -12,6 +12,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         try { await next(context); }
         catch (Exception exception)
         {
+            if (context.Response.HasStarted) RepositoryDiagnostics.Current?.MarkResponseStarted();
             RepositoryDiagnostics.Current?.Fail(exception);
             if (exception is OperationCanceledException && context.RequestAborted.IsCancellationRequested)
             {
@@ -27,6 +28,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
                 NotFoundException => (StatusCodes.Status404NotFound, exception.Message, null),
                 ExternalServiceException => (StatusCodes.Status502BadGateway, exception.Message, null),
                 RateLimitException => (StatusCodes.Status429TooManyRequests, exception.Message, null),
+                _ when RepositoryDiagnostics.Current?.HistoryPersistenceFailed == true => (StatusCodes.Status500InternalServerError, "Unable to save repository assistant history. Please retry.", null),
                 InvalidOperationException => (StatusCodes.Status409Conflict, exception.Message, null),
                 _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.", null)
             };

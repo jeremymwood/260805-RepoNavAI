@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using RepoNavAI.Application.Repositories;
+using RepoNavAI.Application.Common.Diagnostics;
 
 namespace RepoNavAI.Infrastructure.Repositories;
 
@@ -53,25 +54,27 @@ public sealed class SemanticKernelRepositoryAnswerGenerator(
             MaxTokens = _options.ChatMaxOutputTokens
         };
 
-        await foreach (var update in chatCompletion.GetStreamingChatMessageContentsAsync(history, settings, cancellationToken: cancellationToken))
-            if (!string.IsNullOrEmpty(update.Content)) yield return update.Content;
+        using var call = RepositoryDiagnostics.Current?.StartProviderCall(ProviderCallKind.Answer, Model, true,
+            history.Count, history.Sum(message => message.Content?.Length ?? 0), cancellationToken, settings.Temperature, settings.MaxTokens);
+        await using var enumerator = chatCompletion.GetStreamingChatMessageContentsAsync(history, settings, cancellationToken: cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+        while (true)
+        {
+            bool next;
+            try { next = await enumerator.MoveNextAsync(); }
+            catch (Exception exception) { call?.Fail(exception); throw; }
+            if (!next) { call?.Complete(); yield break; }
+            var update = enumerator.Current;
+            OpenAIUsageDiagnostics.Record(call, update.Metadata, update.InnerContent);
+            if (!string.IsNullOrEmpty(update.Content)) { call?.FirstDelta(); yield return update.Content; }
+        }
     }
 
     internal static string BuildGroundedQuestion(string question, IReadOnlyCollection<SemanticSearchResult> sources, int maximumCharacters)
     {
         var builder = new StringBuilder();
         builder.AppendLine("Developer question:").AppendLine(question).AppendLine().AppendLine("Repository evidence:");
-        foreach (var (source, index) in sources.Select((source, index) => (source, index + 1)))
-        {
-            var heading = $"\n[{index}] {source.Path}:{source.StartLine}-{source.EndLine} at commit {source.CommitSha}\n<repository_evidence>\n";
-            const string closing = "\n</repository_evidence>\n";
-            var remaining = maximumCharacters - builder.Length - heading.Length - closing.Length;
-            if (remaining <= 0) break;
-            builder.Append(heading);
-            builder.Append(source.Content.AsSpan(0, Math.Min(source.Content.Length, remaining)));
-            builder.Append(closing);
-        }
-        builder.AppendLine("\nAnswer the developer question using only this evidence and cite claims as [n].");
-        return builder.ToString();
+        return EvidencePromptBuilder.Finish(builder, sources, maximumCharacters, RepositoryPrompt.AnswerV1,
+            "\nAnswer the developer question using only this evidence and cite claims as [n].");
     }
 }

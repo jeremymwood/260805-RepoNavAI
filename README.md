@@ -117,7 +117,7 @@ Open `http://localhost:5173`. PostgreSQL data persists in the `postgres-data` vo
 
 Use the [read-only PostgreSQL inspection workflow](docs/operations/database-inspection.md) to examine the local database without exposing a database port or placing credentials in shell history.
 
-Optional [AI request/indexing diagnostics](docs/ai-observability.md) provide metadata-only run IDs, timings, and local OpenTelemetry inspection. Export is off by default; the guide includes an opt-in Compose collector and the [AI-01 acceptance checks](docs/testing/manual-acceptance.md#ai-01-privacy-safe-request-and-indexing-diagnostics-95).
+Optional [AI request/indexing diagnostics](docs/ai-observability.md) provide metadata-only run IDs, selected-evidence manifests, reported provider usage, outcomes, timings, and local OpenTelemetry inspection. Export is off by default; the guide includes an opt-in Compose collector and [AI-02 acceptance checks](docs/testing/manual-acceptance.md#ai-02-evidence-and-provider-diagnostics-98). Missing usage remains unknown, and prompts/source/responses are never captured in these diagnostics.
 
 Semantic search uses the pgvector-enabled PostgreSQL image. After adding an OpenAI API key, register or explicitly re-index a repository so its immutable snapshot receives embeddings. Repository chat retrieves from the latest indexed snapshot and streams a citation-grounded answer over authenticated server-sent events.
 
@@ -179,6 +179,6 @@ Feature-level browser checks are maintained in the [manual acceptance runbook](d
 
 The [GitHub project](https://github.com/users/jeremymwood/projects/14) is authoritative for current priority and delivery state. The living [product steering document](docs/product/steering.md) records product principles, limitations, risks, and longer-range direction; completed capabilities are summarized here instead of repeated as future work.
 
-The proposed [AI engineering maturity roadmap](docs/ai-engineering-roadmap.md) prioritizes tracing, a verified evaluation dataset, manual failure analysis and deterministic regression checks before read-only tools, MCP and bounded agent workflows. The [repository gap analysis](docs/ai-engineering-gap-analysis.md) distinguishes existing capabilities from missing reliability evidence, and the [first-increment issue drafts](docs/development/ai-engineering-work-items.md) define priorities, sizes, dependencies and verification. These are planned capabilities, not completed evaluation results.
+The [AI engineering maturity roadmap](docs/ai-engineering-roadmap.md) prioritizes tracing, a verified evaluation dataset, manual failure analysis and deterministic regression checks before read-only tools, MCP and bounded agent workflows. The [repository gap analysis](docs/ai-engineering-gap-analysis.md) distinguishes existing capabilities from missing reliability evidence, and the [published first-increment work items](docs/development/ai-engineering-work-items.md) define priorities, sizes, dependencies and verification. AI-01 has shipped; the remaining queue is tracked on GitHub. Planned evaluations are not completed evaluation results.
 
 Organization membership is the tenant boundary. All future project and repository operations must retain the tenant-scoped authorization model documented in ADR-002.

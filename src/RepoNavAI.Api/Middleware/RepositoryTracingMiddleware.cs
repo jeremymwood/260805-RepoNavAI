@@ -32,6 +32,7 @@ public sealed class RepositoryTracingMiddleware(RequestDelegate next)
         catch (Exception exception) { run.Fail(exception); throw; }
         finally
         {
+            if (context.Response.HasStarted && run.Outcome == RepositoryOutcome.Completed) run.MarkResponseStarted();
             if (run.Outcome == RepositoryOutcome.Running) run.Finish(RepositoryOutcome.Failed);
             log.Finished(run);
         }

@@ -33,13 +33,14 @@ public sealed class GenerateCodeFlowTraceHandler(IOrganizationAccess access, IRe
         if (!generator.IsConfigured) throw new ExternalServiceException("Code-flow explanation is not configured.");
         var snapshot = await snapshots.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken)
             ?? throw new ConflictException("Complete repository indexing before explaining a code flow.");
+        RepositoryDiagnostics.Current?.ExpectSnapshot(snapshot);
         var question = request.Question.Trim();
-        var sessionId = await sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, generator.Model, cancellationToken);
+        var sessionId = await RepositoryDiagnostics.PersistAsync(() => sessions.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, generator.Model, cancellationToken), cancellationToken);
         RepositoryAssistantHistory? historyEntry = null;
         var completed = false;
         try
         {
-            historyEntry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.CodeFlow, question, snapshot.CommitSha, cancellationToken);
+            historyEntry = await RepositoryDiagnostics.PersistAsync(() => history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.CodeFlow, question, snapshot.CommitSha, cancellationToken), cancellationToken);
             var retrievalQueries = new[]
             {
                 question,
@@ -53,19 +54,23 @@ public sealed class GenerateCodeFlowTraceHandler(IOrganizationAccess access, IRe
             var sources = searches.Where(x => string.Equals(x.CommitSha, snapshot.CommitSha, StringComparison.OrdinalIgnoreCase))
                 .GroupBy(x => x.ChunkId).Select(group => group.OrderByDescending(x => x.Score).First())
                 .OrderByDescending(x => x.Score).Take(20).ToArray();
-            if (sources.Length == 0) throw new ConflictException("The indexed repository does not contain enough evidence to explain that flow.");
+            if (sources.Length == 0)
+            {
+                RepositoryDiagnostics.Current?.RecordResult(RepositoryResult.EmptyEvidence);
+                throw new ConflictException("The indexed repository does not contain enough evidence to explain that flow.");
+            }
             var draft = await RepositoryDiagnostics.TraceAsync(RepositoryStage.Generation, () => generator.GenerateAsync(question, sources, cancellationToken), cancellationToken);
-            var trace = CodeFlowMapping.Map(request.RepositoryId, snapshot.CommitSha, draft, sources);
+            var trace = RepositoryDiagnostics.ValidateStructure(() => CodeFlowMapping.Map(request.RepositoryId, snapshot.CommitSha, draft, sources));
             var stored = new StoredCodeFlowHistory(trace.SchemaVersion, trace.RepositoryId, trace.CommitSha, trace.Summary, trace.Steps, trace.MissingEvidence);
-            await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.CodeFlowV1, JsonSerializer.Serialize(stored), null, cancellationToken);
+            await RepositoryDiagnostics.PersistAsync(() => history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.CodeFlowV1, JsonSerializer.Serialize(stored), null, cancellationToken), cancellationToken);
             completed = true;
             return trace;
         }
         finally
         {
             var status = completed ? RepositoryChatStatus.Completed : cancellationToken.IsCancellationRequested ? RepositoryChatStatus.Cancelled : RepositoryChatStatus.Failed;
-            if (!completed && historyEntry is not null) await history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None);
-            await sessions.FinishAsync(sessionId, status, CancellationToken.None);
+            if (!completed && historyEntry is not null) await RepositoryDiagnostics.PersistAsync(() => history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None), CancellationToken.None);
+            await RepositoryDiagnostics.PersistAsync(() => sessions.FinishAsync(sessionId, status, CancellationToken.None), CancellationToken.None);
         }
     }
 }
