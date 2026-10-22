@@ -1,6 +1,6 @@
 # RepoNavAI product steering
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-21
 
 ## Purpose
 
@@ -49,7 +49,7 @@ Their core jobs are:
 | Frontend | Responsive themes, shared styles, loading/error/recovery states and browser visual checks | Further visual work stays separate from AI reliability foundations |
 | Public preview | GitHub Pages demonstrates the product with safe fixture data | It is read-only and has no API, database, authentication, ingestion, or AI calls |
 | Production hosting | Azure target, Bicep, dedicated Migrator, immutable image publishing and promotion/rollback workflows exist | Live provisioning and operating readiness were not verified in this audit; see [deployment strategy](../operations/production-deployment.md) |
-| AI engineering reliability | Metadata-only run correlation, optional local tracing, existing acquisition metrics, and provider-independent tests | AI-01 / #95 passed local acceptance and awaits PR review/CI; datasets, repeated-run evaluation, tools and MCP follow in the [roadmap](../ai-engineering-roadmap.md). See [AI observability](../ai-observability.md) |
+| AI engineering reliability | AI-01 / #95 shipped metadata-only run correlation, optional tracing, acquisition metrics, and provider-independent tests | AI-02 / #98 adds evidence/provider diagnostics; local automated and live acceptance passed, with review/CI still required before merge. Dataset/runner/baseline issues #99/#100/#101 are published. Tools and MCP follow the [roadmap](../ai-engineering-roadmap.md); see [AI observability](../ai-observability.md) |
 
 ## Differentiators
 
@@ -61,10 +61,10 @@ The groups below describe proposed investment horizons, not live execution statu
 
 ### Now
 
-- Trace existing retrieval/generation and indexing without exporting unrestricted repository content.
+- Complete selected-evidence/provider diagnostics (#98), following the shipped safe tracing foundation (#95).
 - Author a pinned 25-case evaluation dataset and record the first manually reviewed baseline before introducing agents.
 - Track a supported .NET LTS upgrade before .NET 9 support ends on November 10, 2026. See [Microsoft's policy](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) and the [draft platform work item](../development/ai-engineering-work-items.md#plat-01-upgrade-the-supported-net-runtime-and-toolchain).
-- Keep Apple/Microsoft provider rollout (#90/#91) as separate P1 work; it does not block local AI evaluation.
+- Follow the [active delivery queue](../development/ai-engineering-work-items.md#active-delivery-queue): #98, #99, #102, #96, #100, #101. Keep Apple/Microsoft rollout and other older issues deferred; do not choose them ahead of this roadmap merely because they share P1.
 
 ### Next
 

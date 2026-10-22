@@ -7,7 +7,7 @@ using RepoNavAI.Application.Common.Exceptions;
 namespace RepoNavAI.Application.Common.Diagnostics;
 
 public enum RepositoryOperation { Search, Answer, Orientation, CodeFlow, Register, Reindex, Retry, Indexing }
-public enum RepositoryStage { Authorization, Embedding, Retrieval, Generation, Acquisition }
+public enum RepositoryStage { Authorization, Embedding, Retrieval, Generation, Acquisition, HistoryPersistence }
 public enum RepositoryOutcome { Running, Completed, Failed, Cancelled, Rejected, Deferred, LeaseLost }
 
 /// <summary>Only typed operations and opaque identifiers may enter this telemetry boundary.</summary>
@@ -41,7 +41,26 @@ public static class RepositoryDiagnostics
     {
         using var span = new StageScope(stage, cancellationToken);
         try { var result = await action(); span.Complete(); return result; }
-        catch (Exception exception) { span.Fail(exception); throw; }
+        catch (Exception exception)
+        {
+            if (stage == RepositoryStage.HistoryPersistence &&
+                exception is not (ValidationException or UnauthorizedException or ForbiddenException or NotFoundException or ConflictException or RateLimitException) &&
+                !(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
+                Current?.RecordResult(RepositoryResult.HistoryPersistenceFailure);
+            span.Fail(exception); throw;
+        }
+    }
+
+    public static Task PersistAsync(Func<Task> action, CancellationToken cancellationToken) =>
+        TraceAsync(RepositoryStage.HistoryPersistence, async () => { await action(); return true; }, cancellationToken);
+
+    public static Task<T> PersistAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken) =>
+        TraceAsync(RepositoryStage.HistoryPersistence, action, cancellationToken);
+
+    public static T ValidateStructure<T>(Func<T> action)
+    {
+        try { return action(); }
+        catch { Current?.RecordResult(RepositoryResult.InvalidStructure); throw; }
     }
 
     public static async IAsyncEnumerable<T> TraceStream<T>(RepositoryStage stage, IAsyncEnumerable<T> source,
@@ -92,7 +111,7 @@ public static class RepositoryDiagnostics
         public void Complete() => _outcome = "completed";
         public void Fail(Exception exception)
         {
-            var category = ErrorCategory(exception, _token);
+            var category = _stage == RepositoryStage.HistoryPersistence && _run?.HistoryPersistenceFailed == true ? "persistence" : ErrorCategory(exception, _token);
             _outcome = category == "cancelled" ? "cancelled" : "failed";
             _activity?.SetTag("error.type", category);
         }
@@ -110,7 +129,7 @@ public static class RepositoryDiagnostics
     }
 }
 
-public sealed class RepositoryRun : IDisposable
+public sealed partial class RepositoryRun : IDisposable
 {
     private readonly RepositoryRun? _previous;
     private readonly CancellationToken _token;
@@ -145,12 +164,37 @@ public sealed class RepositoryRun : IDisposable
 
     public void Finish(RepositoryOutcome outcome)
     {
+        if (outcome == RepositoryOutcome.Completed && Result is RepositoryResult.HistoryPersistenceFailure or RepositoryResult.InvalidStructure or RepositoryResult.ProviderFailure or RepositoryResult.Timeout)
+            outcome = RepositoryOutcome.Failed;
         if (Outcome == RepositoryOutcome.Running) Outcome = outcome;
+        if (outcome == RepositoryOutcome.Cancelled) RecordResult(RepositoryResult.Cancelled);
+        if (Result is null) Result = outcome switch
+        {
+            RepositoryOutcome.Completed => RepositoryResult.Success,
+            RepositoryOutcome.Cancelled => RepositoryResult.Cancelled,
+            RepositoryOutcome.Rejected => RepositoryResult.Rejected,
+            _ => RepositoryResult.Failure
+        };
     }
 
     public void Fail(Exception exception)
     {
-        ErrorCategory = RepositoryDiagnostics.ErrorCategory(exception, _token);
+        ErrorCategory = Result switch
+        {
+            RepositoryResult.HistoryPersistenceFailure => "persistence",
+            RepositoryResult.InvalidStructure => "invalid_structure",
+            RepositoryResult.ProviderFailure => "provider",
+            RepositoryResult.Timeout => "timeout",
+            _ => RepositoryDiagnostics.ErrorCategory(exception, _token)
+        };
+        if (!(Result == RepositoryResult.EmptyEvidence && ErrorCategory == "conflict")) RecordResult(ErrorCategory switch
+        {
+            "cancelled" => RepositoryResult.Cancelled,
+            "timeout" => RepositoryResult.Timeout,
+            "provider" => RepositoryResult.ProviderFailure,
+            "validation" or "access" or "not_found" or "conflict" or "rate_limit" => RepositoryResult.Rejected,
+            _ => RepositoryResult.Failure
+        });
         Outcome = ErrorCategory switch
         {
             "cancelled" => RepositoryOutcome.Cancelled,
@@ -164,6 +208,8 @@ public sealed class RepositoryRun : IDisposable
         if (_disposed) return;
         _disposed = true;
         if (Outcome == RepositoryOutcome.Running) Outcome = _token.IsCancellationRequested ? RepositoryOutcome.Cancelled : RepositoryOutcome.Failed;
+        Finish(Outcome);
+        WriteDiagnosticSummary();
         _activity?.SetTag("reponav.outcome", Outcome.ToString());
         if (ErrorCategory is not null) _activity?.SetTag("error.type", ErrorCategory);
         _activity?.SetStatus(Outcome is RepositoryOutcome.Failed or RepositoryOutcome.LeaseLost ? ActivityStatusCode.Error : ActivityStatusCode.Ok);

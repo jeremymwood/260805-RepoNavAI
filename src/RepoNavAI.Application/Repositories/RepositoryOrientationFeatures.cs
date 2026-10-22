@@ -40,38 +40,46 @@ public sealed class CreateOrientationPlanHandler(IOrganizationAccess access, IRe
         if (!generator.IsConfigured) throw new ExternalServiceException("Repository orientation is not configured.");
         var snapshot = await store.GetLatestSnapshotAsync(request.OrganizationId, request.RepositoryId, cancellationToken)
             ?? throw new ConflictException("Complete repository indexing before creating an orientation plan.");
+        RepositoryDiagnostics.Current?.ExpectSnapshot(snapshot);
         var profile = new OrientationProfile(request.Role, request.Experience, request.Focus, request.TimeBudgetMinutes, request.Objective?.Trim());
         var prompt = string.IsNullOrWhiteSpace(request.Objective) ? $"Create a {request.Focus} orientation plan." : request.Objective.Trim();
-        var historyEntry = await history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Orientation, prompt, snapshot.CommitSha, cancellationToken);
+        var historyEntry = await RepositoryDiagnostics.PersistAsync(() => history.StartAsync(request.OrganizationId, request.RepositoryId, currentUser.UserId, RepositoryAssistantHistoryMode.Orientation, prompt, snapshot.CommitSha, cancellationToken), cancellationToken);
         try
         {
-        var embedding = (await embeddings.GenerateAsync([RetrievalPrompt + " " + request.Focus + " " + request.Objective], cancellationToken))[0];
-        var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 20, cancellationToken);
-        if (sources.Count == 0) throw new ConflictException("The indexed repository does not contain enough evidence for an orientation plan.");
-        var draft = await RepositoryDiagnostics.TraceAsync(RepositoryStage.Generation, () => generator.GenerateAsync(profile, sources, cancellationToken), cancellationToken);
-        var stepKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var steps = draft.Steps.Take(12).Select(step =>
-        {
-            if (string.IsNullOrWhiteSpace(step.Key) || !stepKeys.Add(step.Key) || string.IsNullOrWhiteSpace(step.Title)) throw new ExternalServiceException("The orientation provider returned an invalid plan.");
-            if (!Enum.IsDefined(step.EvidenceLevel)) throw new ExternalServiceException("The orientation provider returned an invalid evidence level.");
-            var citations = step.CitationNumbers.Distinct().Select(number => number >= 1 && number <= sources.Count
-                ? sources.ElementAt(number - 1) : throw new ExternalServiceException("The orientation provider returned an invalid citation."))
-                .Select(source => new OrientationCitation(source.Path, source.StartLine, source.EndLine, source.CommitSha, source.SourceUrl)).ToArray();
-            if (step.EvidenceLevel == OrientationEvidenceLevel.Confirmed && citations.Length == 0) throw new ExternalServiceException("The orientation provider returned an unsupported factual step.");
-            return new OrientationStep(step.Key, step.Title, step.Objective, step.Evidence, step.EvidenceLevel, citations, false);
-        }).ToArray();
-        if (steps.Length == 0) throw new ExternalServiceException("The orientation provider returned an empty plan.");
-        var content = new StoredOrientation(draft.Summary, steps, draft.MissingEvidence.Take(10).ToArray());
-        var entity = new RepositoryOrientationPlan(request.OrganizationId, request.RepositoryId, currentUser.UserId, snapshot.Id,
-            snapshot.CommitSha, request.Role, request.Experience, request.Focus, request.TimeBudgetMinutes, generator.Model,
-            JsonSerializer.Serialize(content), timeProvider.GetUtcNow());
-        await store.AddAsync(entity, cancellationToken); await store.SaveChangesAsync(cancellationToken);
-        await history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.OrientationV1, null, entity.Id, cancellationToken);
-        return OrientationPlanMapping.ToDto(entity, content, snapshot.CommitSha);
+            var embedding = (await embeddings.GenerateAsync([RetrievalPrompt + " " + request.Focus + " " + request.Objective], cancellationToken))[0];
+            var sources = await vectors.SearchAsync(request.OrganizationId, request.RepositoryId, embedding, 20, cancellationToken);
+            if (sources.Count == 0)
+            {
+                RepositoryDiagnostics.Current?.RecordResult(RepositoryResult.EmptyEvidence);
+                throw new ConflictException("The indexed repository does not contain enough evidence for an orientation plan.");
+            }
+            var draft = await RepositoryDiagnostics.TraceAsync(RepositoryStage.Generation, () => generator.GenerateAsync(profile, sources, cancellationToken), cancellationToken);
+            var content = RepositoryDiagnostics.ValidateStructure(() =>
+            {
+                var stepKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var steps = draft.Steps.Take(12).Select(step =>
+                {
+                    if (string.IsNullOrWhiteSpace(step.Key) || !stepKeys.Add(step.Key) || string.IsNullOrWhiteSpace(step.Title)) throw new ExternalServiceException("The orientation provider returned an invalid plan.");
+                    if (!Enum.IsDefined(step.EvidenceLevel)) throw new ExternalServiceException("The orientation provider returned an invalid evidence level.");
+                    var citations = step.CitationNumbers.Distinct().Select(number => number >= 1 && number <= sources.Count
+                        ? sources.ElementAt(number - 1) : throw new ExternalServiceException("The orientation provider returned an invalid citation."))
+                        .Select(source => new OrientationCitation(source.Path, source.StartLine, source.EndLine, source.CommitSha, source.SourceUrl)).ToArray();
+                    if (step.EvidenceLevel == OrientationEvidenceLevel.Confirmed && citations.Length == 0) throw new ExternalServiceException("The orientation provider returned an unsupported factual step.");
+                    return new OrientationStep(step.Key, step.Title, step.Objective, step.Evidence, step.EvidenceLevel, citations, false);
+                }).ToArray();
+                if (steps.Length == 0) throw new ExternalServiceException("The orientation provider returned an empty plan.");
+                return new StoredOrientation(draft.Summary, steps, draft.MissingEvidence.Take(10).ToArray());
+            });
+            var entity = new RepositoryOrientationPlan(request.OrganizationId, request.RepositoryId, currentUser.UserId, snapshot.Id,
+                snapshot.CommitSha, request.Role, request.Experience, request.Focus, request.TimeBudgetMinutes, generator.Model,
+                JsonSerializer.Serialize(content), timeProvider.GetUtcNow());
+            await RepositoryDiagnostics.PersistAsync(async () => { await store.AddAsync(entity, cancellationToken); await store.SaveChangesAsync(cancellationToken); }, cancellationToken);
+            await RepositoryDiagnostics.PersistAsync(() => history.CompleteAsync(historyEntry.Id, RepositoryAssistantHistorySchemas.OrientationV1, null, entity.Id, cancellationToken), cancellationToken);
+            return OrientationPlanMapping.ToDto(entity, content, snapshot.CommitSha);
         }
         catch
         {
-            await history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None); throw;
+            await RepositoryDiagnostics.PersistAsync(() => history.FinishIncompleteAsync(historyEntry.Id, cancellationToken.IsCancellationRequested ? RepositoryAssistantHistoryStatus.Cancelled : RepositoryAssistantHistoryStatus.Failed, CancellationToken.None), CancellationToken.None); throw;
         }
     }
 }

@@ -1,10 +1,10 @@
 # AI engineering maturity roadmap
 
-Date: 2026-10-15. Status: proposed delivery plan; runtime implementation has not started under this initiative.
+Prepared: 2026-10-15. Reviewed: 2026-10-19. AI-01 shipped through #95 / PR #97; AI-02 / #98 is In progress. The remaining first-increment work is published and ordered; later increments remain proposals.
 
 RepoNavAI should help developers understand unfamiliar codebases and make the reliability of its answers inspectable. This roadmap adds evidence about model behavior, retrieval quality, failure handling, cost and repeatability to the existing product. Its portfolio value should come from recorded results, not extra frameworks or unsupported claims.
 
-The [gap analysis](ai-engineering-gap-analysis.md) establishes the source baseline. The [project board](https://github.com/users/jeremymwood/projects/14) continues to own delivery status. `AI-xx` identifiers below are proposal IDs, not GitHub issue numbers. The [issue drafts](development/ai-engineering-work-items.md) are ready for intake using the existing Priority and Size conventions.
+The [gap analysis](ai-engineering-gap-analysis.md) establishes the source baseline. The [project board](https://github.com/users/jeremymwood/projects/14) continues to own delivery status. `AI-xx` identifiers below are roadmap IDs, not GitHub issue numbers. The [first-increment work items](development/ai-engineering-work-items.md#active-delivery-queue) map published issues, Priority/Size fields, and execution order: #98, #99, #102, #96, #100, #101. Older GitHub backlog remains deferred.
 
 ## Delivery sequence and gates
 
@@ -81,7 +81,7 @@ Set quality thresholds after the first labeled baseline. Security and determinis
 
 ## Prioritized work inventory
 
-Sizes describe relative uncertainty/effort, not promised durations. AI-01 is in progress as [#95](https://github.com/jeremymwood/260805-RepoNavAI/issues/95) (P1 / M); other entries remain proposed Backlog items. Within a priority, follow dependencies and the order above rather than numeric ID alone.
+Sizes describe relative uncertainty/effort, not promised durations. AI-01 / [#95](https://github.com/jeremymwood/260805-RepoNavAI/issues/95) is Done; AI-02 / [#98](https://github.com/jeremymwood/260805-RepoNavAI/issues/98) is In progress (P1 / M). AI-03/04/05 and PLAT-01 are published as #99/#100/#101/#102 in Backlog. AI-06 through AI-16 remain proposals. Within a priority, follow the active queue and dependencies rather than numeric ID alone.
 
 | ID | Work item | Priority / size | Depends on |
 | --- | --- | --- | --- |
@@ -109,4 +109,4 @@ The platform deadline can proceed alongside the first AI increment; record the r
 
 Each issue ships through small compiling PRs with automated checks, manual steps, documented limitations and its board priority/size. Publish `docs/ai-observability.md` with working inspection commands when tracing ships, `docs/ai-failure-taxonomy.md` after observed runs, and `docs/ai-evaluation-strategy.md` with the actual runner and CI. Create `docs/case-study-ai-reliability.md` only when measured evidence exists, then link it prominently from the README.
 
-The audit remains a point-in-time planning baseline, not an evaluation result. The first implementation slice is **AI-01** ([local inspection and acceptance](ai-observability.md)); **AI-03** is eligible for independent dataset authoring. No paid evaluations, tool/MCP endpoints or production deployment have been performed by this roadmap. No rewrite, autonomous repository writes, large multi-agent system, or Python service is required by this plan.
+The audit remains a point-in-time planning baseline, not an evaluation result. AI-01 is complete; the current implementation slice is **AI-02 / #98** ([local inspection and acceptance](ai-observability.md)); **AI-03 / #99** is eligible for independent dataset authoring. No paid evaluation batch, tool/MCP endpoints or production deployment have been performed by this roadmap. No rewrite, autonomous repository writes, large multi-agent system, or Python service is required by this plan.

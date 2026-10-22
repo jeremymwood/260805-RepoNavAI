@@ -1,12 +1,27 @@
-# AI engineering: first-increment issue drafts
+# AI engineering: first-increment work items
 
-Prepared 2026-10-15 against `bc5efb6c52899776ccfdaf9dd59e58830f1fd36d`. AI-01 is published as [#95](https://github.com/jeremymwood/260805-RepoNavAI/issues/95) and is in progress (P1 / M). Remaining entries are issue drafts. See the [roadmap](../ai-engineering-roadmap.md) for later increments and the [audit](../ai-engineering-gap-analysis.md) for code evidence.
+Prepared 2026-10-15 against `bc5efb6c52899776ccfdaf9dd59e58830f1fd36d`; publication/status review 2026-10-19. AI-01 / [#95](https://github.com/jeremymwood/260805-RepoNavAI/issues/95) is complete through merged PR #97. The first-increment drafts below are now published; GitHub owns live status. See the [roadmap](../ai-engineering-roadmap.md) for later increments and the [audit](../ai-engineering-gap-analysis.md) for code evidence.
 
 Use the [existing intake process](work-management.md). On publication, replace proposal dependencies with GitHub issue links, add each issue to Project 14, and set **both** Priority and Size fields as well as matching labels. The intake workflow adds an item but does not assign those fields. Keep status Backlog until work starts; do not mark this entire initiative In progress. No duplicate tracing/eval issue was found in the open-issue query on the preparation date; recheck before publishing.
 
+## Active delivery queue
+
+These P1 / M items take precedence over the older deferred backlog. Only #98 is In progress. Priority is a bucket; this order and the dependencies determine execution. Wait for acceptance/review at each handoff. No paid evaluation is authorized by issue publication.
+
+| Order | Issue | Dependency / scheduling constraint |
+| --- | --- | --- |
+| 1 | [#98: AI-02 evidence and provider diagnostics](https://github.com/jeremymwood/260805-RepoNavAI/issues/98) | #95 complete |
+| 2 | [#99: AI-03 verified evaluation dataset](https://github.com/jeremymwood/260805-RepoNavAI/issues/99) | Audit; independent of #98 |
+| 3 | [#102: PLAT-01 supported .NET toolchain](https://github.com/jeremymwood/260805-RepoNavAI/issues/102) | Target 2026-11-06, before support ends 2026-11-10; move earlier if the deadline is at risk |
+| 4 | [#96: Tailwind build-tool security](https://github.com/jeremymwood/260805-RepoNavAI/issues/96) | Separate maintenance PR; no production npm advisories in the preceding verification |
+| 5 | [#100: AI-04 bounded evaluation runner](https://github.com/jeremymwood/260805-RepoNavAI/issues/100) | #98 and #99; stabilize runtime before a comparable baseline batch |
+| 6 | [#101: AI-05 observed baseline/failure taxonomy](https://github.com/jeremymwood/260805-RepoNavAI/issues/101) | #100; separate approval/budget for paid runs |
+
+AI-06 through AI-16 remain planned inventory entries, not published issues. Refine and publish those at their evidence/dependency gates rather than treating unobserved failure hypotheses as implementation-ready fixes.
+
 ## AI-01: Trace AI requests and indexing attempts without exposing content
 
-Implementation and local verification: [AI observability](../ai-observability.md). Manual acceptance completed on 2026-10-19; #95 awaits pull-request review and CI before closing.
+Implementation and local verification: [AI observability](../ai-observability.md). Manual acceptance completed on 2026-10-19; PR #97 merged with CI passing and #95 closed.
 
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`.
 
@@ -37,6 +52,8 @@ Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`,
 
 ## AI-02: Record selected evidence, provider usage and generation outcomes
 
+Published as [#98](https://github.com/jeremymwood/260805-RepoNavAI/issues/98). In progress pending review/CI; local automated and live acceptance passed on 2026-10-21. Implementation, acceptance instructions and verified results are in [AI observability](../ai-observability.md#ai-02-evidence-and-provider-diagnostics-98).
+
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`.
 
 **Problem and value:** Retrieved sources are not necessarily the sources included in a truncated prompt. Provider usage and per-stage failures are lost at application boundaries. Evaluation needs the exact context selection and call outcome, not only the final answer.
@@ -66,6 +83,8 @@ Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`,
 
 ## AI-03: Author 25 verified evaluation cases against immutable corpora
 
+Published as [#99](https://github.com/jeremymwood/260805-RepoNavAI/issues/99), Backlog.
+
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`.
 
 **Problem and value:** Manual examples and mocked tests cannot measure whether retrieval and generated claims remain correct across model or prompt changes. Establish reviewed expected evidence before building graders.
@@ -93,6 +112,8 @@ Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`,
 **Rollout/rollback:** Versioned data and validation only. Change an incorrect expectation through review and invalidate affected baseline comparisons explicitly.
 
 ## AI-04: Build a bounded .NET evaluation runner with reproducible artifacts
+
+Published as [#100](https://github.com/jeremymwood/260805-RepoNavAI/issues/100), Backlog; blocked by #98 and #99.
 
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`.
 
@@ -123,6 +144,8 @@ Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`,
 
 ## AI-05: Review baseline runs and derive an observed failure taxonomy
 
+Published as [#101](https://github.com/jeremymwood/260805-RepoNavAI/issues/101), Backlog; blocked by #100.
+
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`.
 
 **Problem and value:** Evaluators should reflect actual failures rather than a speculative list. Establish the first honest reliability baseline and use it to select improvements.
@@ -150,6 +173,8 @@ Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`,
 **Rollout/rollback:** Findings and artifacts only. Correct labels through versioned review; keep original run data and distinguish reclassification from a new execution.
 
 ## PLAT-01: Upgrade the supported .NET runtime and toolchain
+
+Published as [#102](https://github.com/jeremymwood/260805-RepoNavAI/issues/102), Backlog; project target date 2026-11-06.
 
 Priority: P1. Size: M. Suggested labels: `type:infrastructure`, `area:platform`, `priority:P1`, `size:M`. Target: before 2026-11-10.
 

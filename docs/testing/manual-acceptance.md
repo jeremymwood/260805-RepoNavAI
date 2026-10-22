@@ -112,6 +112,37 @@ Automated checks: from `src/RepoNavAI.Web`, run `npm test`, `npm run lint`, `npm
 8. Lower retention, entry-count, or result-size limits in a disposable local environment. Confirm expired and oldest entries are pruned, oversized results are not stored, and the live assistant result remains usable.
 9. Remove the repository and use the read-only database workflow to confirm its assistant history rows are absent.
 
+## AI-02: Evidence and provider diagnostics (#98)
+
+This is an observability change, not a new assistant control. Keep the existing `.env`; no new secret, migration or re-index is needed. From the repository root with Docker Desktop running:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d
+docker compose -f docker-compose.yml -f docker-compose.observability.yml restart web
+docker compose -f docker-compose.yml -f docker-compose.observability.yml ps
+```
+
+Open `http://localhost:5173` and `/health`. The explicit proxy restart refreshes its upstream address after API recreation. Use an already-indexed public fixture, preferably RepoNavAI for the example prompts below. Do not use prompts about this app against an unrelated repository. New searches/generation use your provider credits; the automated tests use only fake providers. These live steps are for an explicitly approved/manual acceptance session, not unattended paid testing.
+
+1. **Startup:** `/health` is healthy, sign-in works, and a completed repository opens normally. Pass: no new setup or indexing requirement.
+2. **Search:** Select explicit Search; ask `Where is organization membership checked before repository chat?`. Copy `X-RepoNav-Run-Id` from the new `semantic-search` response. Pass: existing source cards still work; the trace has expected/actual snapshot metadata, ranked chunk IDs/scores, embedding model/dimensions, usage availability, and zero generation calls. An empty result must show EmptyEvidence rather than falsely imply grounded generation.
+3. **Answer:** Ask `Explain how a repository question reaches the model and how citations are assembled.` in Answer mode. Pass: streaming, citations and saved history work. The trace contains AnswerV1 context entries and one generation call. Each included entry has an offset/count; omitted entries have no prompt offset. Provider input/output/total usage is reported only if received; first-delta time is present and no greater than call duration.
+4. **Structured generation:** Run one Orientation and one Code flow for an evidenced behavior, such as `Trace repository indexing from registration through the worker to persisted source chunks.` Pass: both existing displays work; traces show the corresponding template and `json_object`, configured output limit, actual context selection, and distinct provider versus application outcomes. Orientation and CodeFlow do not claim streaming first-delta times.
+5. **Stop:** Start an Answer, wait for text, and click Stop. Pass: the input/button recover and generation does not restart. The run ends Cancelled, records that response/output started, and does not invent usage if the final provider usage chunk was not received. A very fast response that finishes before Stop is inconclusive; the automated pre-/post-delta cancellation tests cover the timing deterministically.
+6. **Privacy and availability:** Inspect only this run's API/collector records. Pass: no prompt, source path/body, answer, email, cookie, key or raw exception is present; opaque chunk/snapshot IDs, hashes, settings and counts are expected. Stop the collector and submit an approved request: the app still works and the safe API run summary remains available. Restart the collector afterwards.
+
+Inspect a run (wait a few seconds for export):
+
+```powershell
+$runId = 'paste-X-RepoNav-Run-Id-here'
+docker compose logs --since 10m api | Select-String -SimpleMatch $runId
+docker compose -f docker-compose.yml -f docker-compose.observability.yml logs --since 10m otel-collector | Select-String -SimpleMatch $runId -Context 15,35
+```
+
+The collector prints manifest JSON attributes near the matching run ID. Expand the context window if necessary. Never paste whole unreviewed logs or provider credentials into an issue.
+
+**No-cost deterministic checks:** run `dotnet test RepoNavAI.sln`. This includes synthetic long-context truncation/omission, oversized headings, copied text offsets, real pinned connector/fake-HTTP usage chunks, absent usage, pre-/post-delta cancellation, invalid JSON, timeout/provider errors, and history-write errors. For real PostgreSQL filtering/manifest checks use the isolated test container procedure in [indexing backfill](indexing-backfill.md#automated-regression-checks); without its environment variable those three tests explicitly skip. Do not force failures or corrupt your ordinary database to exercise these cases. Mocked checks do not establish live answer quality; #99-#101 cover evaluation.
+
 ## AI-01: Privacy-safe request and indexing diagnostics (#95)
 
 Start with the two-file Compose command in [AI observability](../ai-observability.md#local-startup-and-inspection). Use a public indexed fixture; live assistant/re-index calls use your configured provider balance. There is no new UI to enable.

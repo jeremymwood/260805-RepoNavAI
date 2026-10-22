@@ -67,15 +67,17 @@ public sealed class RepositoryRunLog(ILogger<RepositoryRunLog> logger)
         "Repository operation {Operation} started for job {JobId} attempt {Attempt}", run.Operation, run.JobId, run.Attempt);
 
     public void Finished(RepositoryRun run) => logger.LogInformation(
-        "Repository operation {Operation} finished with {Outcome} and category {FailureCategory} in {ElapsedMilliseconds} ms for job {JobId} attempt {Attempt}",
-        run.Operation, run.Outcome, run.ErrorCategory, run.Elapsed.TotalMilliseconds, run.JobId, run.Attempt);
+        "Repository operation {Operation} finished with {Outcome} and result {Result}, category {FailureCategory} in {ElapsedMilliseconds} ms for job {JobId} attempt {Attempt}; provider calls {ProviderCalls}, generation calls {GenerationCalls}, response started {ResponseStarted}, output started {OutputStarted}, history failed {HistoryFailed}",
+        run.Operation, run.Outcome, run.Result, run.ErrorCategory, run.Elapsed.TotalMilliseconds, run.JobId, run.Attempt,
+        run.ProviderCallCount, run.GenerationCallCount, run.ResponseStarted, run.OutputStarted, run.HistoryPersistenceFailed);
 }
 
 /// <summary>Suppress content-bearing third-party/request/exception logs while an AI or indexing run is active.</summary>
 public sealed class RepositoryLogFilter : ILogEventFilter
 {
     private static readonly HashSet<string> AllowedProperties =
-    ["SourceContext", "RunId", "RepositoryTraceId", "Operation", "Outcome", "FailureCategory", "ElapsedMilliseconds", "JobId", "Attempt"];
+    ["SourceContext", "RunId", "RepositoryTraceId", "Operation", "Outcome", "FailureCategory", "ElapsedMilliseconds", "JobId", "Attempt",
+        "Result", "ProviderCalls", "GenerationCalls", "ResponseStarted", "OutputStarted", "HistoryFailed"];
 
     public bool IsEnabled(LogEvent logEvent)
     {

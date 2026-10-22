@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Pgvector;
@@ -62,18 +63,34 @@ public sealed class OpenAIEmbeddingGenerator(HttpClient httpClient, IOptions<Ope
     private async Task<IReadOnlyList<float[]>> GenerateCoreAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken)
     {
         if (!IsConfigured) throw new ExternalServiceException("Semantic search is not configured. Add an OpenAI API key and re-index the repository.");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "embeddings") { Content = JsonContent.Create(new EmbeddingRequest(Model, inputs, Dimensions)) };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.ApiKey);
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new ExternalServiceException("The embedding provider could not process the request.");
-        var payload = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(cancellationToken) ?? throw new ExternalServiceException("The embedding provider returned an invalid response.");
-        var vectors = payload.Data.OrderBy(x => x.Index).Select(x => x.Embedding).ToArray();
-        if (vectors.Length != inputs.Count || vectors.Any(x => x.Length != Dimensions)) throw new ExternalServiceException("The embedding provider returned an unexpected vector shape.");
-        return vectors;
+        using var call = RepositoryDiagnostics.Current?.StartProviderCall(ProviderCallKind.Embedding, Model, false,
+            inputs.Count, inputs.Sum(input => input.Length), cancellationToken, dimensions: Dimensions,
+            timeoutSeconds: httpClient.Timeout == Timeout.InfiniteTimeSpan ? null : httpClient.Timeout.TotalSeconds);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "embeddings") { Content = JsonContent.Create(new EmbeddingRequest(Model, inputs, Dimensions)) };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.ApiKey);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode) throw new ExternalServiceException("The embedding provider could not process the request.");
+            var payload = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(cancellationToken);
+            if (payload?.Data is null) { call?.InvalidStructure(); throw new ExternalServiceException("The embedding provider returned an invalid response."); }
+            call?.RecordReturnedModel(payload.Model);
+            if (payload.Usage is not null) call?.RecordUsage(new(payload.Usage.PromptTokens, null, payload.Usage.TotalTokens));
+            var vectors = payload.Data.OrderBy(x => x.Index).Select(x => x.Embedding).ToArray();
+            if (vectors.Length != inputs.Count || vectors.Any(x => x is null || x.Length != Dimensions))
+            { call?.InvalidStructure(); throw new ExternalServiceException("The embedding provider returned an unexpected vector shape."); }
+            call?.Complete();
+            return vectors;
+        }
+        catch (JsonException) { call?.InvalidStructure(); throw; }
+        catch (Exception exception) { call?.Fail(exception); throw; }
     }
 
     private sealed record EmbeddingRequest([property: JsonPropertyName("model")] string Model, [property: JsonPropertyName("input")] IReadOnlyList<string> Input, [property: JsonPropertyName("dimensions")] int Dimensions, [property: JsonPropertyName("encoding_format")] string EncodingFormat = "float");
-    private sealed record EmbeddingResponse([property: JsonPropertyName("data")] IReadOnlyList<EmbeddingData> Data);
+    private sealed record EmbeddingResponse([property: JsonPropertyName("data")] IReadOnlyList<EmbeddingData>? Data,
+        [property: JsonPropertyName("usage")] EmbeddingUsage? Usage, [property: JsonPropertyName("model")] string? Model);
+    private sealed record EmbeddingUsage([property: JsonPropertyName("prompt_tokens")] long? PromptTokens,
+        [property: JsonPropertyName("total_tokens")] long? TotalTokens);
     private sealed record EmbeddingData([property: JsonPropertyName("index")] int Index, [property: JsonPropertyName("embedding")] float[] Embedding);
 }
 
@@ -93,13 +110,16 @@ public sealed class PgVectorStore(AppDbContext db) : IVectorStore
 
     private async Task<IReadOnlyCollection<SemanticSearchResult>> SearchCoreAsync(Guid organizationId, Guid repositoryId, float[] query, int limit, CancellationToken cancellationToken)
     {
-        var snapshotId = await db.RepositorySnapshots.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId).OrderByDescending(x => x.CreatedAtUtc).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken);
-        if (snapshotId is null) return [];
+        var snapshot = await db.RepositorySnapshots.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RepositoryId == repositoryId)
+            .OrderByDescending(x => x.CreatedAtUtc).Select(x => new RepositorySnapshotReference(x.Id, x.CommitSha)).FirstOrDefaultAsync(cancellationToken);
+        if (snapshot is null) { RepositoryDiagnostics.Current?.RecordRetrieval(null, null, limit, [], query.Length); return []; }
         var vector = new Vector(query);
         var rows = await db.RepositoryChunks.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshotId && EF.Property<Vector?>(x, "Embedding") != null)
+            .Where(x => x.OrganizationId == organizationId && x.SnapshotId == snapshot.Id && EF.Property<Vector?>(x, "Embedding") != null)
             .OrderBy(x => EF.Property<Vector>(x, "Embedding").CosineDistance(vector)).Take(limit)
-            .Select(x => new { x.Id, x.Document.Path, x.StartLine, x.EndLine, x.Content, x.Snapshot.CommitSha, x.Snapshot.Repository.WebUrl, Distance = EF.Property<Vector>(x, "Embedding").CosineDistance(vector) }).ToArrayAsync(cancellationToken);
-        return rows.Select(x => new SemanticSearchResult(x.Id, x.Path, x.StartLine, x.EndLine, x.Content, 1d - x.Distance, x.CommitSha, $"{x.WebUrl}/blob/{x.CommitSha}/{x.Path}#L{x.StartLine}")).ToArray();
+            .Select(x => new { x.Id, x.Document.Path, x.StartLine, x.EndLine, x.Content, x.EmbeddingModel, x.Snapshot.CommitSha, x.Snapshot.Repository.WebUrl, Distance = EF.Property<Vector>(x, "Embedding").CosineDistance(vector) }).ToArrayAsync(cancellationToken);
+        var results = rows.Select(x => new SemanticSearchResult(x.Id, x.Path, x.StartLine, x.EndLine, x.Content, 1d - x.Distance, x.CommitSha, $"{x.WebUrl}/blob/{x.CommitSha}/{x.Path}#L{x.StartLine}")).ToArray();
+        RepositoryDiagnostics.Current?.RecordRetrieval(snapshot.Id, snapshot.CommitSha, limit, results, query.Length, rows.Select(x => x.EmbeddingModel));
+        return results;
     }
 }

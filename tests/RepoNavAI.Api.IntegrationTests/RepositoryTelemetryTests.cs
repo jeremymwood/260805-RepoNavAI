@@ -277,6 +277,42 @@ public sealed class RepositoryTelemetryTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HistoryPersistenceFailure_IsVisibleBeforeOrAfterOutput(bool answer)
+    {
+        using var exporter = new RecordingExporter();
+        using var provider = Provider(exporter);
+        await using var baseFactory = new OrganizationApiFactory();
+        await using var factory = baseFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IRepositoryAssistantHistoryStore>();
+            services.AddSingleton<IRepositoryAssistantHistoryStore>(new TestRepositoryAssistantHistoryStore { CompletionFailure = new InvalidOperationException(Canary) });
+        }));
+        using var client = factory.CreateClient();
+        using var organizationResponse = await client.PostAsJsonAsync("/api/organizations", new { name = "History failure fixture" });
+        var organization = (await organizationResponse.Content.ReadFromJsonAsync<OrganizationSummary>(JsonOptions))!;
+        using var repositoryResponse = await client.PostAsJsonAsync($"/api/organizations/{organization.Id}/repositories", new { url = "https://github.com/acme/test" });
+        var repository = (await repositoryResponse.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions))!;
+        var url = $"/api/organizations/{organization.Id}/repositories/{repository.Id}";
+        using var response = answer ? await client.PostAsJsonAsync(url + "/chat", new { question = "Describe the source." }) :
+            await client.GetAsync(url + "/semantic-search?query=source");
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(Canary);
+        if (answer) body.Should().Contain("event: error");
+        else response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var runId = response.Headers.GetValues(RepositoryTracingMiddleware.RunIdHeader).Single();
+        var spans = exporter.Items.Where(x => (string?)x.GetTagItem("reponav.run.id") == runId).ToArray();
+        var root = spans.Single(x => x.OperationName.EndsWith(".run", StringComparison.Ordinal));
+        root.GetTagItem("reponav.outcome").Should().Be("Failed");
+        root.GetTagItem("reponav.result").Should().Be("HistoryPersistenceFailure");
+        root.GetTagItem("reponav.output.started").Should().Be(answer);
+        root.GetTagItem("reponav.response.started").Should().Be(answer);
+        root.GetTagItem("reponav.history.failed").Should().Be(true);
+        AssertSafe(spans);
+    }
+
+    [Theory]
     [InlineData("https://token@collector.invalid")]
     [InlineData("https://collector.invalid?key=secret")]
     [InlineData("https://collector.invalid/v1/traces")]
@@ -295,7 +331,9 @@ public sealed class RepositoryTelemetryTests
 
     private static void AssertSafe(IEnumerable<Activity> spans)
     {
-        string[] allowed = ["reponav.run.id", "reponav.operation", "reponav.outcome", "reponav.job.id", "reponav.job.attempt", "error.type"];
+        string[] allowed = ["reponav.run.id", "reponav.operation", "reponav.outcome", "reponav.job.id", "reponav.job.attempt", "error.type",
+            "reponav.result", "reponav.diagnostics.version", "reponav.pipeline.version", "reponav.output.started", "reponav.response.started", "reponav.history.failed", "reponav.provider.calls", "reponav.generation.calls",
+            "reponav.metadata.truncated", "reponav.snapshot.expected_id", "reponav.snapshot.expected_commit", "reponav.retrieval.manifest", "reponav.context.manifest", "reponav.provider.details"];
         foreach (var span in spans)
         {
             span.TagObjects.Should().OnlyContain(x => allowed.Contains(x.Key));

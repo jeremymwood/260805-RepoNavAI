@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using RepoNavAI.Application.Common.Exceptions;
+using RepoNavAI.Application.Common.Diagnostics;
 using RepoNavAI.Application.Repositories;
 using RepoNavAI.Domain.Repositories;
 using RepoNavAI.Infrastructure.Persistence;
@@ -43,11 +44,13 @@ public sealed class RepositoryAssistantHistoryStore(AppDbContext db, TimeProvide
             ?? throw new NotFoundException("Assistant history entry was not found.");
         if (!RepositoryAssistantHistoryPolicy.ResultFits(resultJson, options.Value.MaximumResultBytes))
         {
+            RepositoryDiagnostics.Current?.RecordResult(RepositoryResult.HistoryPersistenceFailure);
             entry.FinishIncomplete(RepositoryAssistantHistoryStatus.Failed, timeProvider.GetUtcNow()); await db.SaveChangesAsync(cancellationToken); return;
         }
         var organizationUsage = await GetOrganizationUsageAsync(entry.OrganizationId, cancellationToken);
         if (!RepositoryAssistantHistoryPolicy.OrganizationHasRoom(organizationUsage, resultJson, options.Value.MaximumOrganizationStoredCharacters))
         {
+            RepositoryDiagnostics.Current?.RecordResult(RepositoryResult.HistoryPersistenceFailure);
             entry.FinishIncomplete(RepositoryAssistantHistoryStatus.Failed, timeProvider.GetUtcNow()); await db.SaveChangesAsync(cancellationToken); return;
         }
         entry.Complete(schemaVersion, resultJson, orientationPlanId, timeProvider.GetUtcNow()); await db.SaveChangesAsync(cancellationToken);
